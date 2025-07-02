@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"io"
 	"log"
 	"os/exec" // Import os/exec
 	"strings"
@@ -10,6 +11,8 @@ import (
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/ec2"
+	"github.com/charmbracelet/bubbles/key"
+	"github.com/charmbracelet/bubbles/list" // Import bubbles/list
 	"github.com/charmbracelet/bubbles/spinner"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -25,15 +28,6 @@ var (
 			Foreground(lipgloss.Color("#7D56F4")).
 			Bold(true).
 			PaddingBottom(1)
-
-	// Style for instance details
-	instanceStyle = lipgloss.NewStyle().PaddingLeft(2)
-
-	// Style for selected instance
-	selectedInstanceStyle = lipgloss.NewStyle().
-				Foreground(lipgloss.Color("205")).
-				Bold(true).
-				PaddingLeft(1)
 
 	// Style for status messages (e.g., loading, success)
 	statusStyle = lipgloss.NewStyle().
@@ -57,21 +51,76 @@ var (
 			Border(lipgloss.NormalBorder(), true).
 			BorderForeground(lipgloss.Color("63")).
 			Padding(1, 2)
+
+	// List item styles
+	titleStyle          = lipgloss.NewStyle().Bold(true)
+	descriptionStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("240"))
+	selectedItemStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("205"))
+	unselectedItemStyle = lipgloss.NewStyle()
 )
+
+// ec2InstanceItem represents a single EC2 instance in the list.
+type ec2InstanceItem struct {
+	instance *ec2.Instance
+}
+
+// FilterValue implements list.Item.
+func (i ec2InstanceItem) FilterValue() string {
+	return getInstanceName(i.instance) + " " + aws.StringValue(i.instance.InstanceId) + " " + aws.StringValue(i.instance.State.Name)
+}
+
+// Title implements list.DefaultItem.
+func (i ec2InstanceItem) Title() string {
+	return titleStyle.Render(fmt.Sprintf("%s (%s)", getInstanceName(i.instance), aws.StringValue(i.instance.InstanceId)))
+}
+
+// Description implements list.DefaultItem.
+func (i ec2InstanceItem) Description() string {
+	return descriptionStyle.Render(fmt.Sprintf("Type: %s | State: %s | Public IP: %s",
+		aws.StringValue(i.instance.InstanceType),
+		aws.StringValue(i.instance.State.Name),
+		aws.StringValue(i.instance.PublicIpAddress),
+	))
+}
+
+// itemDelegate customizes how each item in the list is rendered.
+type itemDelegate struct {
+}
+
+func (d itemDelegate) Height() int                               { return 2 }
+func (d itemDelegate) Spacing() int                              { return 1 }
+func (d itemDelegate) Update(msg tea.Msg, m *list.Model) tea.Cmd { return nil }
+
+func (d itemDelegate) Render(w io.Writer, m list.Model, index int, item list.Item) {
+	i, ok := item.(ec2InstanceItem)
+	if !ok {
+		return
+	}
+
+	var style lipgloss.Style
+	if index == m.Index() {
+		style = selectedItemStyle
+	} else {
+		style = unselectedItemStyle
+	}
+
+	str := fmt.Sprintf("%s\n%s", i.Title(), i.Description())
+	fmt.Fprint(w, style.Render(str))
+}
 
 // model represents the state of our TUI application.
 type model struct {
-	ec2Svc         *ec2.EC2        // AWS EC2 service client
-	instances      []*ec2.Instance // List of EC2 instances
-	cursor         int             // Cursor position in the instance list
-	status         string          // Current status message (e.g., "Loading...", "Ready")
-	err            error           // Any error encountered
-	spinner        spinner.Model   // Spinner for loading states
-	confirming     bool            // True if waiting for user confirmation
-	action         string          // The action being confirmed ("stop" or "start")
-	actionID       *string         // The ID of the instance for the pending action
-	showDetails    bool            // True if showing instance details
-	detailInstance *ec2.Instance   // The instance whose details are currently displayed
+	ec2Svc         *ec2.EC2      // AWS EC2 service client
+	instanceList   list.Model    // List of EC2 instances using bubbles/list
+	status         string        // Current status message (e.g., "Loading...", "Ready")
+	err            error         // Any error encountered
+	spinner        spinner.Model // Spinner for loading states
+	confirming     bool          // True if waiting for user confirmation
+	action         string        // The action being confirmed ("stop" or "start")
+	actionID       *string       // The ID of the instance for the pending action
+	showDetails    bool          // True if showing instance details
+	detailInstance *ec2.Instance // The instance whose details are currently displayed
+	keys           *listKeyMap
 }
 
 // messages are used to pass data between commands and the Update function.
@@ -86,42 +135,64 @@ type (
 // Init initializes the model and starts fetching EC2 instances.
 func (m model) Init() tea.Cmd {
 	// Start the spinner animation
+	m.keys = newListKeyMap()
 	return tea.Batch(m.spinner.Tick, fetchInstancesCmd(m.ec2Svc))
 }
 
 // Update handles incoming messages and updates the model's state.
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	var cmd tea.Cmd
 	switch msg := msg.(type) {
+	case tea.WindowSizeMsg:
+		h, v := appStyle.GetFrameSize()
+		m.instanceList.SetSize(msg.Width-h, msg.Height-v)
+		return m, nil
 	case tea.KeyMsg:
+		if m.confirming {
+			// Handle confirmation keys
+			switch msg.String() {
+			case "y", "Y":
+				m.confirming = false
+				m.status = fmt.Sprintf("%sing instance %s...", m.action, *m.actionID)
+				m.err = nil
+				if m.action == "stop" {
+					return m, tea.Batch(m.spinner.Tick, stopInstanceCmd(m.ec2Svc, m.actionID))
+				} else if m.action == "start" {
+					return m, tea.Batch(m.spinner.Tick, startInstanceCmd(m.ec2Svc, m.actionID))
+				}
+			case "n", "N":
+				m.confirming = false
+				m.status = "Action cancelled."
+				m.action = ""
+				m.actionID = nil
+			}
+			return m, nil // Don't pass key to list if confirming
+		}
+
+		if m.showDetails {
+			// Handle detail view keys
+			switch msg.String() {
+			case "esc", "backspace":
+				m.showDetails = false
+				m.detailInstance = nil
+				m.status = "Ready"
+				m.err = nil
+			}
+			return m, nil // Don't pass key to list if showing details
+		}
+
+		// Handle keys for the main list view
 		switch msg.String() {
 		case "ctrl+c", "q":
-			// Exit the application
 			return m, tea.Quit
-		case "up", "k":
-			// Move cursor up
-			if !m.confirming && !m.showDetails {
-				if m.cursor > 0 {
-					m.cursor--
-				}
-			}
-		case "down", "j":
-			// Move cursor down
-			if !m.confirming && !m.showDetails {
-				if m.cursor < len(m.instances)-1 {
-					m.cursor++
-				}
-			}
 		case "r":
-			// Refresh instances
-			if !m.confirming && !m.showDetails {
-				m.status = "Refreshing instances..."
-				m.err = nil
-				return m, tea.Batch(m.spinner.Tick, fetchInstancesCmd(m.ec2Svc))
-			}
+			m.status = "Refreshing instances..."
+			m.err = nil
+			return m, tea.Batch(m.spinner.Tick, fetchInstancesCmd(m.ec2Svc))
 		case "s":
-			// Stop selected instance
-			if !m.confirming && !m.showDetails && len(m.instances) > 0 {
-				selectedInstance := m.instances[m.cursor]
+			if m.instanceList.SelectedItem() != nil {
+				selectedItem := m.instanceList.SelectedItem().(ec2InstanceItem)
+				selectedInstance := selectedItem.instance
 				if *selectedInstance.State.Name == ec2.InstanceStateNameRunning {
 					m.confirming = true
 					m.action = "stop"
@@ -133,9 +204,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 			}
 		case "t":
-			// Start selected instance
-			if !m.confirming && !m.showDetails && len(m.instances) > 0 {
-				selectedInstance := m.instances[m.cursor]
+			if m.instanceList.SelectedItem() != nil {
+				selectedItem := m.instanceList.SelectedItem().(ec2InstanceItem)
+				selectedInstance := selectedItem.instance
 				if *selectedInstance.State.Name == ec2.InstanceStateNameStopped {
 					m.confirming = true
 					m.action = "start"
@@ -147,70 +218,42 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 			}
 		case "d": // View details
-			if !m.confirming && !m.showDetails && len(m.instances) > 0 {
-				selectedInstance := m.instances[m.cursor]
+			if m.instanceList.SelectedItem() != nil {
+				selectedItem := m.instanceList.SelectedItem().(ec2InstanceItem)
+				selectedInstance := selectedItem.instance
 				m.status = "Fetching instance details..."
 				m.err = nil
 				return m, tea.Batch(m.spinner.Tick, fetchInstanceDetailsCmd(m.ec2Svc, selectedInstance.InstanceId))
 			}
-		case "h": // New: SSH into instance
-			if !m.confirming && !m.showDetails && len(m.instances) > 0 {
-				selectedInstance := m.instances[m.cursor]
+		case "h": // SSH into instance
+			if m.instanceList.SelectedItem() != nil {
+				selectedItem := m.instanceList.SelectedItem().(ec2InstanceItem)
+				selectedInstance := selectedItem.instance
 				publicIP := aws.StringValue(selectedInstance.PublicIpAddress)
-				keyName := *selectedInstance.KeyName
 				if publicIP == "" {
 					m.status = "Selected instance has no public IP address for SSH."
 					m.err = fmt.Errorf("no public IP for SSH")
 				} else {
 					m.status = fmt.Sprintf("Attempting to SSH into %s (%s)...", getInstanceName(selectedInstance), publicIP)
 					m.err = nil
-					return m, sshIntoInstanceCmd(publicIP, keyName)
+					return m, sshIntoInstanceCmd(publicIP)
 				}
-			}
-		case "esc", "backspace": // Exit detail view
-			if m.showDetails {
-				m.showDetails = false
-				m.detailInstance = nil
-				m.status = "Ready"
-				m.err = nil
-			}
-		case "y", "Y":
-			// Confirm action
-			if m.confirming {
-				m.confirming = false
-				m.status = fmt.Sprintf("%sing instance %s...", m.action, *m.actionID)
-				m.err = nil
-				if m.action == "stop" {
-					return m, tea.Batch(m.spinner.Tick, stopInstanceCmd(m.ec2Svc, m.actionID))
-				} else if m.action == "start" {
-					return m, tea.Batch(m.spinner.Tick, startInstanceCmd(m.ec2Svc, m.actionID))
-				}
-			}
-		case "n", "N":
-			// Deny action
-			if m.confirming {
-				m.confirming = false
-				m.status = "Action cancelled."
-				m.action = ""
-				m.actionID = nil
 			}
 		}
 
 	case spinner.TickMsg:
-		var cmd tea.Cmd
 		m.spinner, cmd = m.spinner.Update(msg)
 		return m, cmd
 
 	case instancesFetchedMsg:
-		// Instances fetched successfully
-		m.instances = msg
+		// Instances fetched successfully, update the list items
+		listItems := make([]list.Item, len(msg))
+		for i, instance := range msg {
+			listItems[i] = ec2InstanceItem{instance: instance}
+		}
+		m.instanceList.SetItems(listItems)
 		m.status = "Ready"
 		m.err = nil
-		if len(m.instances) > 0 && m.cursor >= len(m.instances) {
-			m.cursor = len(m.instances) - 1 // Adjust cursor if list shrunk
-		} else if len(m.instances) == 0 {
-			m.cursor = 0
-		}
 		return m, nil
 
 	case instanceActionMsg:
@@ -228,7 +271,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.err = nil
 		return m, nil
 
-	case sshFinishedMsg: // New: SSH command finished
+	case sshFinishedMsg: // SSH command finished
 		if msg != nil {
 			m.err = fmt.Errorf("SSH command failed: %w", msg)
 			m.status = "SSH Failed"
@@ -251,7 +294,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
-	return m, nil
+	// Pass all other messages to the list component
+	m.instanceList, cmd = m.instanceList.Update(msg)
+	return m, cmd
 }
 
 // View renders the TUI.
@@ -259,7 +304,7 @@ func (m model) View() string {
 	var s strings.Builder
 
 	s.WriteString(headerStyle.Render("EC2 Instance Manager\n"))
-	s.WriteString("Use ↑↓ to navigate, 's' to stop, 't' to start, 'r' to refresh, 'd' for details, 'h' to SSH, 'q' or 'ctrl+c' to quit.\n\n") // Updated instructions
+	// s.WriteString("Use ↑↓ to navigate, 's' to stop, 't' to start, 'r' to refresh, 'd' for details, 'h' to SSH, 'q' or 'ctrl+c' to quit.\n\n")
 
 	if m.err != nil {
 		s.WriteString(errorStyle.Render(fmt.Sprintf("Error: %v\n", m.err)))
@@ -287,26 +332,11 @@ func (m model) View() string {
 			s.WriteString(statusStyle.Render("No details available.\n"))
 		}
 	} else {
-		// Render instance list view
-		if len(m.instances) == 0 && m.status == "Ready" {
+		// Render instance list view using bubbles/list
+		if len(m.instanceList.Items()) == 0 && m.status == "Ready" {
 			s.WriteString(statusStyle.Render("No EC2 instances found in this region.\n"))
 		} else {
-			for i, instance := range m.instances {
-				name := getInstanceName(instance)
-				line := fmt.Sprintf("%s %-20s %-15s %s",
-					*instance.InstanceId,
-					name,
-					*instance.InstanceType,
-					*instance.State.Name,
-				)
-
-				if i == m.cursor {
-					s.WriteString(selectedInstanceStyle.Render("> " + line))
-				} else {
-					s.WriteString(instanceStyle.Render("  " + line))
-				}
-				s.WriteString("\n")
-			}
+			s.WriteString(m.instanceList.View())
 		}
 
 		if m.status != "Ready" && m.status != "Error" {
@@ -391,8 +421,8 @@ func startInstanceCmd(svc *ec2.EC2, instanceID *string) tea.Cmd {
 }
 
 // sshIntoInstanceCmd executes an SSH command to connect to the given IP.
-func sshIntoInstanceCmd(publicIP string, keyName string) tea.Cmd {
-	return tea.ExecProcess(exec.Command("ssh", "-i", "/home/jhagofsk/.ssh/"+keyName+".pem", "ec2-user@"+publicIP), nil)
+func sshIntoInstanceCmd(publicIP string) tea.Cmd {
+	return tea.ExecProcess(exec.Command("ssh", "ec2-user@"+publicIP), nil)
 }
 
 // getInstanceName extracts the "Name" tag from an EC2 instance.
@@ -417,6 +447,34 @@ func getSecurityGroupNames(sgs []*ec2.SecurityGroupIdentifier) string {
 	return strings.Join(names, ", ")
 }
 
+type listKeyMap struct {
+	details key.Binding
+	start   key.Binding
+	stop    key.Binding
+	ssh     key.Binding
+}
+
+func newListKeyMap() *listKeyMap {
+	return &listKeyMap{
+		details: key.NewBinding(
+			key.WithKeys("d"),
+			key.WithHelp("d", "details"),
+		),
+		stop: key.NewBinding(
+			key.WithKeys("s"),
+			key.WithHelp("s", "stop"),
+		),
+		start: key.NewBinding(
+			key.WithKeys("t"),
+			key.WithHelp("t", "start"),
+		),
+		ssh: key.NewBinding(
+			key.WithKeys("S"),
+			key.WithHelp("S", "ssh"),
+		),
+	}
+}
+
 func main() {
 	// Initialize AWS session
 	sess, err := session.NewSessionWithOptions(session.Options{
@@ -434,11 +492,34 @@ func main() {
 	s.Spinner = spinner.Dot
 	s.Style = lipgloss.NewStyle().Foreground(lipgloss.Color("63")) // Purple color for spinner
 
+	var listkeys = newListKeyMap()
+
+	// Initialize the list model
+	l := list.New([]list.Item{}, itemDelegate{}, 0, 20) // Width and height will be set by Bubble Tea
+	l.Title = "EC2 Instances"
+	l.SetShowStatusBar(false)
+	l.SetFilteringEnabled(true)
+	l.Styles.Title = headerStyle
+	l.Styles.FilterPrompt = lipgloss.NewStyle().Foreground(lipgloss.Color("205"))
+	l.Styles.FilterCursor = lipgloss.NewStyle().Foreground(lipgloss.Color("205"))
+	l.Styles.NoItems = statusStyle.Copy().UnsetPaddingLeft()
+	l.SetStatusBarItemName("instance", "instances")
+	l.AdditionalFullHelpKeys = func() []key.Binding {
+		return []key.Binding{
+			listkeys.details,
+			listkeys.start,
+			listkeys.stop,
+			listkeys.ssh,
+		}
+
+	}
+
 	// Create initial model
 	m := model{
-		ec2Svc:  svc,
-		status:  "Loading instances...",
-		spinner: s,
+		ec2Svc:       svc,
+		status:       "Loading instances...",
+		spinner:      s,
+		instanceList: l,
 	}
 
 	// Start the Bubble Tea program
