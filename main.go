@@ -126,6 +126,31 @@ func (i ecsClusterItem) Description() string {
 	))
 }
 
+// ecsServiceItem represents a single ECS service in the list.
+type ecsServiceItem struct {
+	service *ecs.Service
+}
+
+// FilterValue implements list.Item for ECS services.
+func (i ecsServiceItem) FilterValue() string {
+	return aws.StringValue(i.service.ServiceName) + " " + aws.StringValue(i.service.Status)
+}
+
+// Title implements list.DefaultItem for ECS services.
+func (i ecsServiceItem) Title() string {
+	return titleStyle.Render(fmt.Sprintf("%s", aws.StringValue(i.service.ServiceName)))
+}
+
+// Description implements list.DefaultItem for ECS services.
+func (i ecsServiceItem) Description() string {
+	return descriptionStyle.Render(fmt.Sprintf("Status: %s | Desired: %d | Running: %d | Pending: %d",
+		aws.StringValue(i.service.Status),
+		aws.Int64Value(i.service.DesiredCount),
+		aws.Int64Value(i.service.RunningCount),
+		aws.Int64Value(i.service.PendingCount),
+	))
+}
+
 // itemDelegate customizes how each item in the list is rendered.
 type itemDelegate struct {
 }
@@ -151,6 +176,9 @@ func (d itemDelegate) Render(w io.Writer, m list.Model, index int, item list.Ite
 	case ecsClusterItem:
 		title = i.Title()
 		description = i.Description()
+	case ecsServiceItem: // Handle ECS service items
+		title = i.Title()
+		description = i.Description()
 	default:
 		return
 	}
@@ -166,6 +194,7 @@ const (
 	stateMenu appState = iota
 	stateEC2Instances
 	stateECSClusters
+	stateECSServices // New state for listing services within a cluster
 )
 
 // model represents the state of our TUI application.
@@ -174,6 +203,7 @@ type model struct {
 	ecsSvc         *ecs.ECS      // AWS ECS service client
 	instanceList   list.Model    // List of EC2 instances using bubbles/list
 	clusterList    list.Model    // List of ECS clusters using bubbles/list
+	serviceList    list.Model    // New: List of ECS services using bubbles/list
 	status         string        // Current status message (e.g., "Loading...", "Ready")
 	err            error         // Any error encountered
 	spinner        spinner.Model // Spinner for loading states
@@ -182,8 +212,9 @@ type model struct {
 	actionID       *string       // The ID of the instance for the pending action
 	showDetails    bool          // True if showing instance details (for EC2)
 	detailInstance *ec2.Instance // The instance whose details are currently displayed (for EC2)
+	detailCluster  *ecs.Cluster  // New: The ECS cluster whose services are currently displayed
 	keys           *listKeyMap
-	state          appState // Current application state (menu, ec2, ecs)
+	state          appState // Current application state (menu, ec2, ecs, ecsServices)
 	menuCursor     int      // Cursor for menu selection
 	menuChoices    []string // Menu options
 }
@@ -192,19 +223,25 @@ type model struct {
 type (
 	instancesFetchedMsg   []*ec2.Instance // Message when instances are fetched
 	ecsClustersFetchedMsg []*ecs.Cluster  // Message when ECS clusters are fetched
+	ecsServicesFetchedMsg []*ecs.Service  // New: Message when ECS services are fetched
 	instanceActionMsg     string          // Message when an instance action (stop/start) is completed
 	instanceDetailsMsg    *ec2.Instance   // Message when instance details are fetched
 	sshFinishedMsg        error           // Message when SSH command finishes (nil for success, error for failure)
 	errMsg                error           // Message for errors
 )
 
-// Init initializes the model and starts fetching EC2 instances if state is EC2.
+// Init initializes the model and starts fetching data based on the initial state.
 func (m model) Init() tea.Cmd {
-	// Start the spinner animation
-	if m.state == stateEC2Instances {
+	// Start the spinner animation and fetch data based on the current state
+	switch m.state {
+	case stateEC2Instances:
 		return tea.Batch(m.spinner.Tick, fetchInstancesCmd(m.ec2Svc))
-	} else if m.state == stateECSClusters {
+	case stateECSClusters:
 		return tea.Batch(m.spinner.Tick, fetchECSClustersCmd(m.ecsSvc))
+	case stateECSServices:
+		if m.detailCluster != nil {
+			return tea.Batch(m.spinner.Tick, fetchECSServicesCmd(m.ecsSvc, aws.StringValue(m.detailCluster.ClusterArn)))
+		}
 	}
 	return nil
 }
@@ -216,7 +253,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		h, v := appStyle.GetFrameSize()
 		m.instanceList.SetSize(msg.Width-2*h, msg.Height-2*v)
-		m.clusterList.SetSize(msg.Width-2*h, msg.Height-2*v) // Set size for cluster list too
+		m.clusterList.SetSize(msg.Width-2*h, msg.Height-2*v)
+		m.serviceList.SetSize(msg.Width-2*h, msg.Height-2*v) // Set size for service list too
 		return m, nil
 	case tea.KeyMsg:
 		if m.state == stateMenu {
@@ -247,8 +285,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 
-		// Handle keys specific to EC2 or ECS lists
-		if m.state == stateEC2Instances {
+		// Handle keys specific to EC2, ECS clusters, or ECS services lists
+		switch m.state {
+		case stateEC2Instances:
 			if m.instanceList.FilterState() == list.Filtering {
 				break
 			}
@@ -342,8 +381,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					}
 				}
 			}
-		} else if m.state == stateECSClusters {
-			// Handle keys for ECS cluster list view
+		case stateECSClusters:
 			if m.clusterList.FilterState() == list.Filtering {
 				break
 			}
@@ -352,15 +390,32 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.status = "Refreshing ECS clusters..."
 				m.err = nil
 				return m, tea.Batch(m.spinner.Tick, fetchECSClustersCmd(m.ecsSvc))
-				// Add more ECS specific actions here if needed
+			case key.Matches(msg, key.NewBinding(key.WithKeys("enter"), key.WithHelp("enter", "select cluster"))):
+				if m.clusterList.SelectedItem() != nil {
+					selectedItem := m.clusterList.SelectedItem().(ecsClusterItem)
+					m.detailCluster = selectedItem.cluster
+					m.state = stateECSServices
+					m.status = fmt.Sprintf("Loading services for cluster %s...", aws.StringValue(m.detailCluster.ClusterName))
+					return m, tea.Batch(m.spinner.Tick, fetchECSServicesCmd(m.ecsSvc, aws.StringValue(m.detailCluster.ClusterArn)))
+				}
+			}
+		case stateECSServices: // New state for ECS Services
+			if m.serviceList.FilterState() == list.Filtering {
+				break
+			}
+			switch {
+			case key.Matches(msg, m.keys.refresh):
+				m.status = fmt.Sprintf("Refreshing services for cluster %s...", aws.StringValue(m.detailCluster.ClusterName))
+				m.err = nil
+				return m, tea.Batch(m.spinner.Tick, fetchECSServicesCmd(m.ecsSvc, aws.StringValue(m.detailCluster.ClusterArn)))
 			}
 		}
 
-		// Global keys (e.g., quit, back to menu)
+		// Global keys (e.g., quit, back to menu/previous view)
 		switch {
 		case key.Matches(msg, key.NewBinding(key.WithKeys("q", "ctrl+c"), key.WithHelp("q/ctrl+c", "quit"))):
 			return m, tea.Quit
-		case key.Matches(msg, key.NewBinding(key.WithKeys("backspace", "esc"), key.WithHelp("backspace/esc", "back to menu"))):
+		case key.Matches(msg, key.NewBinding(key.WithKeys("backspace", "esc"), key.WithHelp("backspace/esc", "back"))):
 			if m.state == stateEC2Instances || m.state == stateECSClusters {
 				m.state = stateMenu
 				m.status = "Select an option."
@@ -368,6 +423,13 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.confirming = false
 				m.showDetails = false
 				m.detailInstance = nil
+				m.detailCluster = nil // Clear detail cluster when going back to menu
+				return m, nil
+			} else if m.state == stateECSServices {
+				m.state = stateECSClusters
+				m.status = "Ready"
+				m.err = nil
+				m.serviceList.SetItems([]list.Item{}) // Clear services when going back to clusters
 				return m, nil
 			}
 		}
@@ -394,6 +456,16 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			listItems[i] = ecsClusterItem{cluster: cluster}
 		}
 		m.clusterList.SetItems(listItems)
+		m.status = "Ready"
+		m.err = nil
+		return m, nil
+
+	case ecsServicesFetchedMsg: // New: Handle fetched ECS services
+		listItems := make([]list.Item, len(msg))
+		for i, service := range msg {
+			listItems[i] = ecsServiceItem{service: service}
+		}
+		m.serviceList.SetItems(listItems)
 		m.status = "Ready"
 		m.err = nil
 		return m, nil
@@ -441,6 +513,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.instanceList, cmd = m.instanceList.Update(msg)
 	} else if m.state == stateECSClusters {
 		m.clusterList, cmd = m.clusterList.Update(msg)
+	} else if m.state == stateECSServices { // New: Update service list
+		m.serviceList, cmd = m.serviceList.Update(msg)
 	}
 	return m, cmd
 }
@@ -463,10 +537,8 @@ func (m model) View() string {
 			if m.menuCursor == i {
 				s.WriteString(fmt.Sprintf("%s %s\n", cursor, selectedItemStyle.Render(choice)))
 			} else {
-
 				s.WriteString(fmt.Sprintf("%s %s\n", cursor, menuItemStyle.Render(choice)))
 			}
-
 		}
 		s.WriteString(statusStyle.Render("\n(Press 'q' or 'ctrl+c' to quit)\n"))
 
@@ -513,6 +585,19 @@ func (m model) View() string {
 			s.WriteString(statusStyle.Render("No ECS clusters found in this region.\n"))
 		} else {
 			s.WriteString(m.clusterList.View())
+		}
+
+		if m.status != "Ready" && m.status != "Error" {
+			s.WriteString(statusStyle.Render(fmt.Sprintf("\n%s %s", m.spinner.View(), m.status)))
+		} else {
+			s.WriteString(statusStyle.Render(fmt.Sprintf("\nStatus: %s", m.status)))
+		}
+	case stateECSServices: // New: Render ECS service list view
+		s.WriteString(headerStyle.Render(fmt.Sprintf("ECS Services in Cluster: %s\n", aws.StringValue(m.detailCluster.ClusterName))))
+		if len(m.serviceList.Items()) == 0 && m.status == "Ready" {
+			s.WriteString(statusStyle.Render("No ECS services found in this cluster.\n"))
+		} else {
+			s.WriteString(m.serviceList.View())
 		}
 
 		if m.status != "Ready" && m.status != "Error" {
@@ -616,6 +701,34 @@ func fetchECSClustersCmd(svc *ecs.ECS) tea.Cmd {
 		}
 
 		return ecsClustersFetchedMsg(describeResult.Clusters)
+	}
+}
+
+// fetchECSServicesCmd fetches ECS services for a given cluster ARN.
+func fetchECSServicesCmd(svc *ecs.ECS, clusterArn string) tea.Cmd {
+	return func() tea.Msg {
+		// List all service ARNs in the cluster
+		listResult, err := svc.ListServices(&ecs.ListServicesInput{
+			Cluster: aws.String(clusterArn),
+		})
+		if err != nil {
+			return errMsg(fmt.Errorf("failed to list ECS services for cluster %s: %w", clusterArn, err))
+		}
+
+		if len(listResult.ServiceArns) == 0 {
+			return ecsServicesFetchedMsg([]*ecs.Service{})
+		}
+
+		// Describe services to get detailed information
+		describeResult, err := svc.DescribeServices(&ecs.DescribeServicesInput{
+			Cluster:  aws.String(clusterArn),
+			Services: listResult.ServiceArns,
+		})
+		if err != nil {
+			return errMsg(fmt.Errorf("failed to describe ECS services for cluster %s: %w", clusterArn, err))
+		}
+
+		return ecsServicesFetchedMsg(describeResult.Services)
 	}
 }
 
@@ -725,17 +838,33 @@ func main() {
 
 	}
 
-	// Initialize the ECS list model
-	ecsList := list.New([]list.Item{}, itemDelegate{}, 0, 20) // Width and height will be set by Bubble Tea
-	ecsList.Title = "ECS Clusters"
-	ecsList.SetShowStatusBar(false)
-	ecsList.SetFilteringEnabled(true)
-	ecsList.Styles.Title = headerStyle
-	ecsList.Styles.FilterPrompt = lipgloss.NewStyle().Foreground(tokyoNightGreen)
-	ecsList.Styles.FilterCursor = lipgloss.NewStyle().Foreground(tokyoNightGreen)
-	ecsList.Styles.NoItems = statusStyle.UnsetPaddingLeft()
-	ecsList.SetStatusBarItemName("cluster", "clusters")
-	ecsList.AdditionalFullHelpKeys = func() []key.Binding {
+	// Initialize the ECS cluster list model
+	ecsClusterList := list.New([]list.Item{}, itemDelegate{}, 0, 20) // Width and height will be set by Bubble Tea
+	ecsClusterList.Title = "ECS Clusters"
+	ecsClusterList.SetShowStatusBar(false)
+	ecsClusterList.SetFilteringEnabled(true)
+	ecsClusterList.Styles.Title = headerStyle
+	ecsClusterList.Styles.FilterPrompt = lipgloss.NewStyle().Foreground(tokyoNightGreen)
+	ecsClusterList.Styles.FilterCursor = lipgloss.NewStyle().Foreground(tokyoNightGreen)
+	ecsClusterList.Styles.NoItems = statusStyle.UnsetPaddingLeft()
+	ecsClusterList.SetStatusBarItemName("cluster", "clusters")
+	ecsClusterList.AdditionalFullHelpKeys = func() []key.Binding {
+		return []key.Binding{
+			listkeys.refresh, // Only refresh for now, add more ECS specific keys later
+		}
+	}
+
+	// Initialize the ECS service list model
+	ecsServiceList := list.New([]list.Item{}, itemDelegate{}, 0, 20) // Width and height will be set by Bubble Tea
+	ecsServiceList.Title = "ECS Services"
+	ecsServiceList.SetShowStatusBar(false)
+	ecsServiceList.SetFilteringEnabled(true)
+	ecsServiceList.Styles.Title = headerStyle
+	ecsServiceList.Styles.FilterPrompt = lipgloss.NewStyle().Foreground(tokyoNightGreen)
+	ecsServiceList.Styles.FilterCursor = lipgloss.NewStyle().Foreground(tokyoNightGreen)
+	ecsServiceList.Styles.NoItems = statusStyle.UnsetPaddingLeft()
+	ecsServiceList.SetStatusBarItemName("service", "services")
+	ecsServiceList.AdditionalFullHelpKeys = func() []key.Binding {
 		return []key.Binding{
 			listkeys.refresh, // Only refresh for now, add more ECS specific keys later
 		}
@@ -748,7 +877,8 @@ func main() {
 		status:       "Select an option.",
 		spinner:      s,
 		instanceList: ec2List,
-		clusterList:  ecsList, // Assign ECS list model
+		clusterList:  ecsClusterList, // Assign ECS cluster list model
+		serviceList:  ecsServiceList, // Assign ECS service list model
 		keys:         listkeys,
 		state:        stateMenu, // Start in the menu state
 		menuChoices:  []string{"EC2 Instances", "ECS Clusters"},
