@@ -10,6 +10,7 @@ import (
 
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/session"
+	"github.com/aws/aws-sdk-go/service/cloudwatchlogs" // Import CloudWatch Logs service
 	"github.com/aws/aws-sdk-go/service/ec2"
 	"github.com/aws/aws-sdk-go/service/ecs" // Import ECS service
 	"github.com/charmbracelet/bubbles/key"
@@ -195,45 +196,49 @@ const (
 	stateEC2Instances
 	stateECSClusters
 	stateECSServices
-	stateECSServiceDetails       // New state for service details
-	stateECSServiceConfirmAction // New state for confirming service actions
+	stateECSServiceDetails
+	stateECSServiceConfirmAction
+	stateECSServiceLogs // New state for viewing service logs
 )
 
 // model represents the state of our TUI application.
 type model struct {
-	ec2Svc                  *ec2.EC2      // AWS EC2 service client
-	ecsSvc                  *ecs.ECS      // AWS ECS service client
-	instanceList            list.Model    // List of EC2 instances using bubbles/list
-	clusterList             list.Model    // List of ECS clusters using bubbles/list
-	serviceList             list.Model    // List of ECS services using bubbles/list
-	status                  string        // Current status message (e.g., "Loading...", "Ready")
-	err                     error         // Any error encountered
-	spinner                 spinner.Model // Spinner for loading states
-	confirming              bool          // True if waiting for user confirmation
-	action                  string        // The action being confirmed ("stop" or "start" for EC2, "stop" for ECS service)
-	actionID                *string       // The ID of the instance for the pending EC2 action
-	showDetails             bool          // True if showing instance details (for EC2)
-	detailInstance          *ec2.Instance // The instance whose details are currently displayed (for EC2)
-	detailCluster           *ecs.Cluster  // The ECS cluster whose services are currently displayed
-	detailService           *ecs.Service  // New: The ECS service whose details are currently displayed
-	ecsServiceActionService *ecs.Service  // The ECS service for the pending action
+	ec2Svc                  *ec2.EC2                       // AWS EC2 service client
+	ecsSvc                  *ecs.ECS                       // AWS ECS service client
+	cloudwatchlogsSvc       *cloudwatchlogs.CloudWatchLogs // New: AWS CloudWatch Logs service client
+	instanceList            list.Model                     // List of EC2 instances using bubbles/list
+	clusterList             list.Model                     // List of ECS clusters using bubbles/list
+	serviceList             list.Model                     // List of ECS services using bubbles/list
+	status                  string                         // Current status message (e.g., "Loading...", "Ready")
+	err                     error                          // Any error encountered
+	spinner                 spinner.Model                  // Spinner for loading states
+	confirming              bool                           // True if waiting for user confirmation
+	action                  string                         // The action being confirmed ("stop" or "start" for EC2, "stop" for ECS service)
+	actionID                *string                        // The ID of the instance for the pending EC2 action
+	showDetails             bool                           // True if showing instance details (for EC2)
+	detailInstance          *ec2.Instance                  // The instance whose details are currently displayed (for EC2)
+	detailCluster           *ecs.Cluster                   // The ECS cluster whose services are currently displayed
+	detailService           *ecs.Service                   // The ECS service whose details are currently displayed
+	ecsServiceActionService *ecs.Service                   // The ECS service for the pending action
+	serviceLogs             string                         // New: Stores fetched ECS service logs
 	keys                    *listKeyMap
-	state                   appState // Current application state (menu, ec2, ecs, ecsServices, ecsServiceDetails, ecsServiceConfirmAction)
+	state                   appState // Current application state (menu, ec2, ecs, ecsServices, ecsServiceDetails, ecsServiceConfirmAction, ecsServiceLogs)
 	menuCursor              int      // Cursor for menu selection
 	menuChoices             []string // Menu options
 }
 
 // messages are used to pass data between commands and the Update function.
 type (
-	instancesFetchedMsg   []*ec2.Instance // Message when instances are fetched
-	ecsClustersFetchedMsg []*ecs.Cluster  // Message when ECS clusters are fetched
-	ecsServicesFetchedMsg []*ecs.Service  // Message when ECS services are fetched
-	ecsServiceDetailsMsg  *ecs.Service    // New: Message when ECS service details are fetched
-	ecsServiceActionMsg   string          // New: Message when an ECS service action (stop) is completed
-	instanceActionMsg     string          // Message when an instance action (stop/start) is completed
-	instanceDetailsMsg    *ec2.Instance   // Message when instance details are fetched
-	sshFinishedMsg        error           // Message when SSH command finishes (nil for success, error for failure)
-	errMsg                error           // Message for errors
+	instancesFetchedMsg      []*ec2.Instance // Message when instances are fetched
+	ecsClustersFetchedMsg    []*ecs.Cluster  // Message when ECS clusters are fetched
+	ecsServicesFetchedMsg    []*ecs.Service  // Message when ECS services are fetched
+	ecsServiceDetailsMsg     *ecs.Service    // Message when ECS service details are fetched
+	ecsServiceActionMsg      string          // Message when an ECS service action (stop) is completed
+	ecsServiceLogsFetchedMsg string          // New: Message when ECS service logs are fetched
+	instanceActionMsg        string          // Message when an instance action (stop/start) is completed
+	instanceDetailsMsg       *ec2.Instance   // Message when instance details are fetched
+	sshFinishedMsg           error           // Message when SSH command finishes (nil for success, error for failure)
+	errMsg                   error           // Message for errors
 )
 
 // Init initializes the model and starts fetching data based on the initial state.
@@ -457,9 +462,31 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						m.status = fmt.Sprintf("Service %s is already stopped (Desired: 0).", aws.StringValue(selectedService.ServiceName))
 					}
 				}
-				// TODO: Add cases for redeploy, scale, logs
+			case key.Matches(msg, key.NewBinding(key.WithKeys("l"), key.WithHelp("l", "logs"))): // View logs
+				if m.serviceList.SelectedItem() != nil {
+					selectedItem := m.serviceList.SelectedItem().(ecsServiceItem)
+					m.detailService = selectedItem.service // Store selected service for log fetching
+					if selectedItem.service.LogConfiguration != nil && selectedItem.service.LogConfiguration.LogDriver == aws.String("awslogs") {
+						logGroupName := aws.StringValue(selectedItem.service.LogConfiguration.Options["awslogs-group"])
+						logStreamPrefix := aws.StringValue(selectedItem.service.LogConfiguration.Options["awslogs-stream-prefix"])
+						if logGroupName != "" {
+							m.state = stateECSServiceLogs
+							m.status = fmt.Sprintf("Fetching logs for service %s...", aws.StringValue(selectedItem.service.ServiceName))
+							return m, tea.Batch(m.spinner.Tick, fetchECSServiceLogsCmd(m.cloudwatchlogsSvc, logGroupName, logStreamPrefix, aws.StringValue(selectedItem.service.ServiceName)))
+						} else {
+							m.status = "Log group not found for this service."
+							m.err = fmt.Errorf("log group not configured")
+						}
+					} else {
+						m.status = "Service does not use awslogs driver or log configuration is missing."
+						m.err = fmt.Errorf("awslogs driver not configured")
+					}
+				}
+				// TODO: Add cases for redeploy, scale
 			}
 		case stateECSServiceDetails:
+			// No specific actions here, just viewing. Handled by global back key.
+		case stateECSServiceLogs:
 			// No specific actions here, just viewing. Handled by global back key.
 		}
 
@@ -502,6 +529,12 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.action = ""
 				m.ecsServiceActionService = nil
 				m.status = "Action cancelled."
+				return m, nil
+			} else if m.state == stateECSServiceLogs { // New: Back from logs to service details
+				m.state = stateECSServices
+				m.status = "Ready"
+				m.err = nil
+				m.serviceLogs = "" // Clear logs when going back
 				return m, nil
 			}
 		}
@@ -558,6 +591,12 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// After action, refresh the service list for the current cluster
 		return m, tea.Batch(m.spinner.Tick, fetchECSServicesCmd(m.ecsSvc, aws.StringValue(m.detailCluster.ClusterArn)))
 
+	case ecsServiceLogsFetchedMsg: // New: Handle fetched ECS service logs
+		m.serviceLogs = msg
+		m.status = "Ready"
+		m.err = nil
+		return m, nil
+
 	case instanceActionMsg:
 		// Instance action completed, refresh the list
 		m.status = fmt.Sprintf("Instance %s %s. Refreshing...", *m.actionID, msg)
@@ -594,6 +633,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.showDetails = false // Exit detail view on error
 		m.detailInstance = nil
 		m.detailService = nil // Clear service details on error
+		m.serviceLogs = ""    // Clear logs on error
 		return m, nil
 	}
 
@@ -717,6 +757,14 @@ func (m model) View() string {
 		}
 	case stateECSServiceConfirmAction: // New: Render confirmation for service actions
 		s.WriteString(confirmStyle.Render(fmt.Sprintf("\n%s", m.status)))
+	case stateECSServiceLogs: // New: Render ECS service logs view
+		s.WriteString(headerStyle.Render(fmt.Sprintf("Logs for Service: %s\n", aws.StringValue(m.detailService.ServiceName))))
+		if m.serviceLogs == "" && m.status == "Ready" {
+			s.WriteString(statusStyle.Render("No logs found for this service.\n"))
+		} else {
+			s.WriteString(detailStyle.Render(m.serviceLogs)) // Display logs in a detail box
+		}
+		s.WriteString(statusStyle.Render("\nPress 'esc' or 'backspace' to go back."))
 	}
 
 	return appStyle.Render(s.String())
@@ -879,6 +927,59 @@ func stopECSServiceCmd(svc *ecs.ECS, clusterArn, serviceArn string) tea.Cmd {
 	}
 }
 
+// fetchECSServiceLogsCmd fetches logs for a specific ECS service from CloudWatch Logs.
+func fetchECSServiceLogsCmd(svc *cloudwatchlogs.CloudWatchLogs, logGroupName, logStreamPrefix, serviceName string) tea.Cmd {
+	return func() tea.Msg {
+		var allLogs strings.Builder
+		// Find log streams for the service within the last 24 hours (approx)
+		// This is a simplification; in a real app, you might want to allow time range selection
+		twentyFourHoursAgo := time.Now().Add(-24 * time.Hour).UnixMilli()
+
+		// List log streams that match the service name prefix
+		logStreamsResult, err := svc.DescribeLogStreams(&cloudwatchlogs.DescribeLogStreamsInput{
+			LogGroupName:        aws.String(logGroupName),
+			LogStreamNamePrefix: aws.String(logStreamPrefix + "/" + serviceName), // Common pattern for ECS service log streams
+			Descending:          aws.Bool(true),
+			Limit:               aws.Int64(10), // Limit to a few recent log streams
+		})
+		if err != nil {
+			return errMsg(fmt.Errorf("failed to describe log streams for service %s: %w", serviceName, err))
+		}
+
+		if len(logStreamsResult.LogStreams) == 0 {
+			return ecsServiceLogsFetchedMsg("No log streams found for this service.")
+		}
+
+		// Fetch events from each relevant log stream
+		for _, stream := range logStreamsResult.LogStreams {
+			allLogs.WriteString(fmt.Sprintf("--- Log Stream: %s ---\n", aws.StringValue(stream.LogStreamName)))
+			getEventsInput := &cloudwatchlogs.GetLogEventsInput{
+				LogGroupName:  aws.String(logGroupName),
+				LogStreamName: stream.LogStreamName,
+				StartTime:     aws.Int64(twentyFourHoursAgo),
+				Limit:         aws.Int64(50), // Fetch up to 50 recent events per stream
+			}
+
+			eventsResult, err := svc.GetLogEvents(getEventsInput)
+			if err != nil {
+				allLogs.WriteString(fmt.Sprintf("Error fetching events from %s: %v\n", aws.StringValue(stream.LogStreamName), err))
+				continue
+			}
+
+			for _, event := range eventsResult.Events {
+				allLogs.WriteString(fmt.Sprintf("[%s] %s\n", time.UnixMilli(aws.Int64Value(event.Timestamp)).Format("15:04:05"), aws.StringValue(event.Message)))
+			}
+			allLogs.WriteString("\n")
+		}
+
+		if allLogs.Len() == 0 {
+			return ecsServiceLogsFetchedMsg("No logs found for this service in the last 24 hours.")
+		}
+
+		return ecsServiceLogsFetchedMsg(allLogs.String())
+	}
+}
+
 type sshExitMsg struct {
 	err error
 }
@@ -916,6 +1017,7 @@ type listKeyMap struct {
 	stop    key.Binding
 	ssh     key.Binding
 	refresh key.Binding
+	logs    key.Binding // New: Key binding for logs
 }
 
 func newListKeyMap() *listKeyMap {
@@ -940,6 +1042,10 @@ func newListKeyMap() *listKeyMap {
 			key.WithKeys("r"),
 			key.WithHelp("r", "refresh"),
 		),
+		logs: key.NewBinding( // New: Logs key binding
+			key.WithKeys("l"),
+			key.WithHelp("l", "logs"),
+		),
 	}
 }
 
@@ -956,6 +1062,8 @@ func main() {
 	ec2Svc := ec2.New(sess)
 	// Create ECS service client
 	ecsSvc := ecs.New(sess)
+	// New: Create CloudWatch Logs service client
+	cloudwatchlogsSvc := cloudwatchlogs.New(sess)
 
 	// Initialize the spinner model
 	s := spinner.New()
@@ -1016,22 +1124,24 @@ func main() {
 			listkeys.details, // View details for service
 			listkeys.stop,    // Stop service
 			listkeys.refresh, // Refresh services
+			listkeys.logs,    // New: View logs for service
 		}
 	}
 
 	// Create initial model
 	m := model{
-		ec2Svc:       ec2Svc,
-		ecsSvc:       ecsSvc, // Assign ECS service client
-		status:       "Select an option.",
-		spinner:      s,
-		instanceList: ec2List,
-		clusterList:  ecsClusterList, // Assign ECS cluster list model
-		serviceList:  ecsServiceList, // Assign ECS service list model
-		keys:         listkeys,
-		state:        stateMenu, // Start in the menu state
-		menuChoices:  []string{"EC2 Instances", "ECS Clusters"},
-		menuCursor:   0,
+		ec2Svc:            ec2Svc,
+		ecsSvc:            ecsSvc,            // Assign ECS service client
+		cloudwatchlogsSvc: cloudwatchlogsSvc, // Assign CloudWatch Logs service client
+		status:            "Select an option.",
+		spinner:           s,
+		instanceList:      ec2List,
+		clusterList:       ecsClusterList, // Assign ECS cluster list model
+		serviceList:       ecsServiceList, // Assign ECS service list model
+		keys:              listkeys,
+		state:             stateMenu, // Start in the menu state
+		menuChoices:       []string{"EC2 Instances", "ECS Clusters"},
+		menuCursor:        0,
 	}
 
 	// Start the Bubble Tea program
