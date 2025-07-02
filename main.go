@@ -194,36 +194,42 @@ const (
 	stateMenu appState = iota
 	stateEC2Instances
 	stateECSClusters
-	stateECSServices // New state for listing services within a cluster
+	stateECSServices
+	stateECSServiceDetails       // New state for service details
+	stateECSServiceConfirmAction // New state for confirming service actions
 )
 
 // model represents the state of our TUI application.
 type model struct {
-	ec2Svc         *ec2.EC2      // AWS EC2 service client
-	ecsSvc         *ecs.ECS      // AWS ECS service client
-	instanceList   list.Model    // List of EC2 instances using bubbles/list
-	clusterList    list.Model    // List of ECS clusters using bubbles/list
-	serviceList    list.Model    // New: List of ECS services using bubbles/list
-	status         string        // Current status message (e.g., "Loading...", "Ready")
-	err            error         // Any error encountered
-	spinner        spinner.Model // Spinner for loading states
-	confirming     bool          // True if waiting for user confirmation
-	action         string        // The action being confirmed ("stop" or "start" for EC2)
-	actionID       *string       // The ID of the instance for the pending action
-	showDetails    bool          // True if showing instance details (for EC2)
-	detailInstance *ec2.Instance // The instance whose details are currently displayed (for EC2)
-	detailCluster  *ecs.Cluster  // New: The ECS cluster whose services are currently displayed
-	keys           *listKeyMap
-	state          appState // Current application state (menu, ec2, ecs, ecsServices)
-	menuCursor     int      // Cursor for menu selection
-	menuChoices    []string // Menu options
+	ec2Svc                  *ec2.EC2      // AWS EC2 service client
+	ecsSvc                  *ecs.ECS      // AWS ECS service client
+	instanceList            list.Model    // List of EC2 instances using bubbles/list
+	clusterList             list.Model    // List of ECS clusters using bubbles/list
+	serviceList             list.Model    // List of ECS services using bubbles/list
+	status                  string        // Current status message (e.g., "Loading...", "Ready")
+	err                     error         // Any error encountered
+	spinner                 spinner.Model // Spinner for loading states
+	confirming              bool          // True if waiting for user confirmation
+	action                  string        // The action being confirmed ("stop" or "start" for EC2, "stop" for ECS service)
+	actionID                *string       // The ID of the instance for the pending EC2 action
+	showDetails             bool          // True if showing instance details (for EC2)
+	detailInstance          *ec2.Instance // The instance whose details are currently displayed (for EC2)
+	detailCluster           *ecs.Cluster  // The ECS cluster whose services are currently displayed
+	detailService           *ecs.Service  // New: The ECS service whose details are currently displayed
+	ecsServiceActionService *ecs.Service  // The ECS service for the pending action
+	keys                    *listKeyMap
+	state                   appState // Current application state (menu, ec2, ecs, ecsServices, ecsServiceDetails, ecsServiceConfirmAction)
+	menuCursor              int      // Cursor for menu selection
+	menuChoices             []string // Menu options
 }
 
 // messages are used to pass data between commands and the Update function.
 type (
 	instancesFetchedMsg   []*ec2.Instance // Message when instances are fetched
 	ecsClustersFetchedMsg []*ecs.Cluster  // Message when ECS clusters are fetched
-	ecsServicesFetchedMsg []*ecs.Service  // New: Message when ECS services are fetched
+	ecsServicesFetchedMsg []*ecs.Service  // Message when ECS services are fetched
+	ecsServiceDetailsMsg  *ecs.Service    // New: Message when ECS service details are fetched
+	ecsServiceActionMsg   string          // New: Message when an ECS service action (stop) is completed
 	instanceActionMsg     string          // Message when an instance action (stop/start) is completed
 	instanceDetailsMsg    *ec2.Instance   // Message when instance details are fetched
 	sshFinishedMsg        error           // Message when SSH command finishes (nil for success, error for failure)
@@ -285,7 +291,27 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 
-		// Handle keys specific to EC2, ECS clusters, or ECS services lists
+		// Handle confirmation for ECS service actions
+		if m.state == stateECSServiceConfirmAction {
+			switch msg.String() {
+			case "y", "Y":
+				m.confirming = false
+				m.status = fmt.Sprintf("%sing service %s...", m.action, aws.StringValue(m.ecsServiceActionService.ServiceName))
+				m.err = nil
+				if m.action == "stop" {
+					return m, tea.Batch(m.spinner.Tick, stopECSServiceCmd(m.ecsSvc, aws.StringValue(m.detailCluster.ClusterArn), aws.StringValue(m.ecsServiceActionService.ServiceArn)))
+				}
+				// Add other ECS service actions here if they need confirmation
+			case "n", "N":
+				m.confirming = false
+				m.status = "Action cancelled."
+				m.action = ""
+				m.ecsServiceActionService = nil
+			}
+			return m, nil // Don't pass key to list if confirming
+		}
+
+		// Handle keys specific to EC2, ECS clusters, ECS services, or ECS service details
 		switch m.state {
 		case stateEC2Instances:
 			if m.instanceList.FilterState() == list.Filtering {
@@ -399,7 +425,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					return m, tea.Batch(m.spinner.Tick, fetchECSServicesCmd(m.ecsSvc, aws.StringValue(m.detailCluster.ClusterArn)))
 				}
 			}
-		case stateECSServices: // New state for ECS Services
+		case stateECSServices:
 			if m.serviceList.FilterState() == list.Filtering {
 				break
 			}
@@ -408,7 +434,33 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.status = fmt.Sprintf("Refreshing services for cluster %s...", aws.StringValue(m.detailCluster.ClusterName))
 				m.err = nil
 				return m, tea.Batch(m.spinner.Tick, fetchECSServicesCmd(m.ecsSvc, aws.StringValue(m.detailCluster.ClusterArn)))
+			case key.Matches(msg, m.keys.details): // View service details
+				if m.serviceList.SelectedItem() != nil {
+					selectedItem := m.serviceList.SelectedItem().(ecsServiceItem)
+					m.detailService = selectedItem.service
+					m.state = stateECSServiceDetails
+					m.status = "Showing service details."
+					m.err = nil
+				}
+			case key.Matches(msg, m.keys.stop): // Stop service
+				if m.serviceList.SelectedItem() != nil {
+					selectedItem := m.serviceList.SelectedItem().(ecsServiceItem)
+					selectedService := selectedItem.service
+					if aws.Int64Value(selectedService.DesiredCount) > 0 {
+						m.confirming = true
+						m.action = "stop"
+						m.ecsServiceActionService = selectedService
+						m.state = stateECSServiceConfirmAction // Transition to confirmation state
+						m.status = fmt.Sprintf("Confirm stopping service %s (Desired: %d)? (y/N)",
+							aws.StringValue(selectedService.ServiceName), aws.Int64Value(selectedService.DesiredCount))
+					} else {
+						m.status = fmt.Sprintf("Service %s is already stopped (Desired: 0).", aws.StringValue(selectedService.ServiceName))
+					}
+				}
+				// TODO: Add cases for redeploy, scale, logs
 			}
+		case stateECSServiceDetails:
+			// No specific actions here, just viewing. Handled by global back key.
 		}
 
 		// Global keys (e.g., quit, back to menu/previous view)
@@ -416,20 +468,40 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case key.Matches(msg, key.NewBinding(key.WithKeys("q", "ctrl+c"), key.WithHelp("q/ctrl+c", "quit"))):
 			return m, tea.Quit
 		case key.Matches(msg, key.NewBinding(key.WithKeys("backspace", "esc"), key.WithHelp("backspace/esc", "back"))):
-			if m.state == stateEC2Instances || m.state == stateECSClusters {
+			if m.state == stateEC2Instances {
 				m.state = stateMenu
 				m.status = "Select an option."
 				m.err = nil
 				m.confirming = false
 				m.showDetails = false
 				m.detailInstance = nil
-				m.detailCluster = nil // Clear detail cluster when going back to menu
+				return m, nil
+			} else if m.state == stateECSClusters {
+				m.state = stateMenu
+				m.status = "Select an option."
+				m.err = nil
+				m.confirming = false
+				m.detailCluster = nil                 // Clear detail cluster when going back to menu
+				m.clusterList.SetItems([]list.Item{}) // Clear clusters
 				return m, nil
 			} else if m.state == stateECSServices {
 				m.state = stateECSClusters
 				m.status = "Ready"
 				m.err = nil
 				m.serviceList.SetItems([]list.Item{}) // Clear services when going back to clusters
+				return m, nil
+			} else if m.state == stateECSServiceDetails {
+				m.state = stateECSServices
+				m.status = "Ready"
+				m.err = nil
+				m.detailService = nil // Clear detail service when going back
+				return m, nil
+			} else if m.state == stateECSServiceConfirmAction {
+				m.state = stateECSServices // Go back to services list if confirming
+				m.confirming = false
+				m.action = ""
+				m.ecsServiceActionService = nil
+				m.status = "Action cancelled."
 				return m, nil
 			}
 		}
@@ -460,7 +532,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.err = nil
 		return m, nil
 
-	case ecsServicesFetchedMsg: // New: Handle fetched ECS services
+	case ecsServicesFetchedMsg: // Handle fetched ECS services
 		listItems := make([]list.Item, len(msg))
 		for i, service := range msg {
 			listItems[i] = ecsServiceItem{service: service}
@@ -469,6 +541,22 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.status = "Ready"
 		m.err = nil
 		return m, nil
+
+	case ecsServiceDetailsMsg: // Handle fetched ECS service details
+		m.detailService = msg
+		m.state = stateECSServiceDetails
+		m.status = "Ready"
+		m.err = nil
+		return m, nil
+
+	case ecsServiceActionMsg: // Handle ECS service action completion
+		m.status = fmt.Sprintf("Service %s %s. Refreshing...", aws.StringValue(m.ecsServiceActionService.ServiceName), msg)
+		m.err = nil
+		m.action = ""
+		m.ecsServiceActionService = nil
+		m.confirming = false
+		// After action, refresh the service list for the current cluster
+		return m, tea.Batch(m.spinner.Tick, fetchECSServicesCmd(m.ecsSvc, aws.StringValue(m.detailCluster.ClusterArn)))
 
 	case instanceActionMsg:
 		// Instance action completed, refresh the list
@@ -505,6 +593,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.actionID = nil
 		m.showDetails = false // Exit detail view on error
 		m.detailInstance = nil
+		m.detailService = nil // Clear service details on error
 		return m, nil
 	}
 
@@ -513,7 +602,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.instanceList, cmd = m.instanceList.Update(msg)
 	} else if m.state == stateECSClusters {
 		m.clusterList, cmd = m.clusterList.Update(msg)
-	} else if m.state == stateECSServices { // New: Update service list
+	} else if m.state == stateECSServices {
 		m.serviceList, cmd = m.serviceList.Update(msg)
 	}
 	return m, cmd
@@ -592,7 +681,7 @@ func (m model) View() string {
 		} else {
 			s.WriteString(statusStyle.Render(fmt.Sprintf("\nStatus: %s", m.status)))
 		}
-	case stateECSServices: // New: Render ECS service list view
+	case stateECSServices: // Render ECS service list view
 		s.WriteString(headerStyle.Render(fmt.Sprintf("ECS Services in Cluster: %s\n", aws.StringValue(m.detailCluster.ClusterName))))
 		if len(m.serviceList.Items()) == 0 && m.status == "Ready" {
 			s.WriteString(statusStyle.Render("No ECS services found in this cluster.\n"))
@@ -602,9 +691,32 @@ func (m model) View() string {
 
 		if m.status != "Ready" && m.status != "Error" {
 			s.WriteString(statusStyle.Render(fmt.Sprintf("\n%s %s", m.spinner.View(), m.status)))
+		} else if m.confirming { // Show confirmation if an action is pending
+			s.WriteString(confirmStyle.Render(fmt.Sprintf("\n%s", m.status)))
 		} else {
 			s.WriteString(statusStyle.Render(fmt.Sprintf("\nStatus: %s", m.status)))
 		}
+	case stateECSServiceDetails: // New: Render ECS service details view
+		if m.detailService != nil {
+			s.WriteString(headerStyle.Render(fmt.Sprintf("ECS Service Details: %s\n", aws.StringValue(m.detailService.ServiceName))))
+			s.WriteString("\n" + detailStyle.Render(
+				fmt.Sprintf("Service Name:  %s\n", aws.StringValue(m.detailService.ServiceName))+
+					fmt.Sprintf("Service ARN:   %s\n", aws.StringValue(m.detailService.ServiceArn))+
+					fmt.Sprintf("Status:        %s\n", aws.StringValue(m.detailService.Status))+
+					fmt.Sprintf("Desired Count: %d\n", aws.Int64Value(m.detailService.DesiredCount))+
+					fmt.Sprintf("Running Count: %d\n", aws.Int64Value(m.detailService.RunningCount))+
+					fmt.Sprintf("Pending Count: %d\n", aws.Int64Value(m.detailService.PendingCount))+
+					fmt.Sprintf("Launch Type:   %s\n", aws.StringValue(m.detailService.LaunchType))+
+					fmt.Sprintf("Task Definition: %s\n", aws.StringValue(m.detailService.TaskDefinition))+
+					fmt.Sprintf("Created At:    %s\n", aws.TimeValue(m.detailService.CreatedAt).Format(time.RFC822))+
+					"\nPress 'esc' or 'backspace' to go back."+
+					"\n"+statusStyle.Render(fmt.Sprintf("Status: %s", m.status)),
+			))
+		} else {
+			s.WriteString(statusStyle.Render("No service details available.\n"))
+		}
+	case stateECSServiceConfirmAction: // New: Render confirmation for service actions
+		s.WriteString(confirmStyle.Render(fmt.Sprintf("\n%s", m.status)))
 	}
 
 	return appStyle.Render(s.String())
@@ -729,6 +841,41 @@ func fetchECSServicesCmd(svc *ecs.ECS, clusterArn string) tea.Cmd {
 		}
 
 		return ecsServicesFetchedMsg(describeResult.Services)
+	}
+}
+
+// fetchECSServiceDetailsCmd fetches details for a specific ECS service.
+func fetchECSServiceDetailsCmd(svc *ecs.ECS, clusterArn, serviceArn string) tea.Cmd {
+	return func() tea.Msg {
+		describeResult, err := svc.DescribeServices(&ecs.DescribeServicesInput{
+			Cluster:  aws.String(clusterArn),
+			Services: []*string{aws.String(serviceArn)},
+		})
+		if err != nil {
+			return errMsg(fmt.Errorf("failed to describe ECS service %s details: %w", serviceArn, err))
+		}
+
+		if len(describeResult.Services) > 0 {
+			return ecsServiceDetailsMsg(describeResult.Services[0])
+		}
+		return errMsg(fmt.Errorf("ECS service %s not found", serviceArn))
+	}
+}
+
+// stopECSServiceCmd updates the desired count of an ECS service to 0 to stop it.
+func stopECSServiceCmd(svc *ecs.ECS, clusterArn, serviceArn string) tea.Cmd {
+	return func() tea.Msg {
+		_, err := svc.UpdateService(&ecs.UpdateServiceInput{
+			Cluster:      aws.String(clusterArn),
+			Service:      aws.String(serviceArn),
+			DesiredCount: aws.Int64(0), // Set desired count to 0 to stop
+		})
+		if err != nil {
+			return errMsg(fmt.Errorf("failed to stop ECS service %s: %w", serviceArn, err))
+		}
+		// Wait a bit for the state to propagate before refreshing
+		time.Sleep(2 * time.Second)
+		return ecsServiceActionMsg("stopped")
 	}
 }
 
@@ -866,7 +1013,9 @@ func main() {
 	ecsServiceList.SetStatusBarItemName("service", "services")
 	ecsServiceList.AdditionalFullHelpKeys = func() []key.Binding {
 		return []key.Binding{
-			listkeys.refresh, // Only refresh for now, add more ECS specific keys later
+			listkeys.details, // View details for service
+			listkeys.stop,    // Stop service
+			listkeys.refresh, // Refresh services
 		}
 	}
 
