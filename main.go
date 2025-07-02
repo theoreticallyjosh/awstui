@@ -18,6 +18,19 @@ import (
 	"github.com/charmbracelet/lipgloss"
 )
 
+// Tokyo Night Color Palette
+var (
+	tokyoNightBlue    = lipgloss.Color("#7AA2F7")
+	tokyoNightGreen   = lipgloss.Color("#9EEB49")
+	tokyoNightYellow  = lipgloss.Color("#E0AF68")
+	tokyoNightRed     = lipgloss.Color("#F7768E")
+	tokyoNightPurple  = lipgloss.Color("#BB9AF7")
+	tokyoNightCyan    = lipgloss.Color("#7DCFFF")
+	tokyoNightGray    = lipgloss.Color("#A9B1D6")
+	tokyoNightDarkBg  = lipgloss.Color("#1A1B26")
+	tokyoNightLightFg = lipgloss.Color("#C0CAF5")
+)
+
 // Define styles using lipgloss
 var (
 	// Base style for the entire application
@@ -25,37 +38,37 @@ var (
 
 	// Style for headers
 	headerStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#7D56F4")).
+			Foreground(tokyoNightPurple).
 			Bold(true).
 			PaddingBottom(1)
 
 	// Style for status messages (e.g., loading, success)
 	statusStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("240")).
+			Foreground(tokyoNightGray).
 			PaddingTop(1)
 
 	// Style for error messages
 	errorStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("9")).
+			Foreground(tokyoNightRed).
 			Bold(true).
 			PaddingTop(1)
 
 	// Style for confirmation prompts
 	confirmStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("220")).
+			Foreground(tokyoNightGreen).
 			Bold(true).
 			PaddingTop(1)
 
 	// Style for detail view
 	detailStyle = lipgloss.NewStyle().
 			Border(lipgloss.NormalBorder(), true).
-			BorderForeground(lipgloss.Color("63")).
+			BorderForeground(tokyoNightBlue).
 			Padding(1, 2)
 
 	// List item styles
 	titleStyle          = lipgloss.NewStyle().Bold(true)
-	descriptionStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("240"))
-	selectedItemStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("205"))
+	descriptionStyle    = lipgloss.NewStyle().Foreground(tokyoNightGray)
+	selectedItemStyle   = lipgloss.NewStyle().Foreground(tokyoNightBlue)
 	unselectedItemStyle = lipgloss.NewStyle()
 )
 
@@ -144,9 +157,12 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		h, v := appStyle.GetFrameSize()
-		m.instanceList.SetSize(msg.Width-h, msg.Height-v)
+		m.instanceList.SetSize(msg.Width-2*h, msg.Height-2*v)
 		return m, nil
 	case tea.KeyMsg:
+		if m.instanceList.FilterState() == list.Filtering {
+			break
+		}
 		if m.confirming {
 			// Handle confirmation keys
 			switch msg.String() {
@@ -182,12 +198,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		// Handle keys for the main list view
 		switch {
-		// case "ctrl+c", "q":
-		// 	return m, tea.Quit
-		// case "r":
-		// 	m.status = "Refreshing instances..."
-		// 	m.err = nil
-		// 	return m, tea.Batch(m.spinner.Tick, fetchInstancesCmd(m.ec2Svc))
+		case key.Matches(msg, m.keys.refresh):
+			m.status = "Refreshing instances..."
+			m.err = nil
+			return m, tea.Batch(m.spinner.Tick, fetchInstancesCmd(m.ec2Svc))
 		case key.Matches(msg, m.keys.stop):
 			if m.instanceList.SelectedItem() != nil {
 				selectedItem := m.instanceList.SelectedItem().(ec2InstanceItem)
@@ -270,9 +284,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.err = nil
 		return m, nil
 
-	case sshFinishedMsg: // SSH command finished
-		if msg != nil {
-			m.err = fmt.Errorf("SSH command failed: %w", msg)
+	case sshExitMsg: // SSH command finished
+		if msg.err != nil {
+			m.err = fmt.Errorf("SSH command failed: %s", msg.err)
 			m.status = "SSH Failed"
 		} else {
 			m.status = "SSH session ended."
@@ -303,7 +317,6 @@ func (m model) View() string {
 	var s strings.Builder
 
 	s.WriteString(headerStyle.Render("EC2 Instance Manager\n"))
-	// s.WriteString("Use ↑↓ to navigate, 's' to stop, 't' to start, 'r' to refresh, 'd' for details, 'h' to SSH, 'q' or 'ctrl+c' to quit.\n\n")
 
 	if m.err != nil {
 		s.WriteString(errorStyle.Render(fmt.Sprintf("Error: %v\n", m.err)))
@@ -312,20 +325,20 @@ func (m model) View() string {
 	if m.showDetails {
 		// Render instance details view
 		if m.detailInstance != nil {
-			s.WriteString(detailStyle.Render(
-				fmt.Sprintf("Instance ID:   %s\n", aws.StringValue(m.detailInstance.InstanceId)) +
-					fmt.Sprintf("Name:          %s\n", getInstanceName(m.detailInstance)) +
-					fmt.Sprintf("State:         %s\n", aws.StringValue(m.detailInstance.State.Name)) +
-					fmt.Sprintf("Type:          %s\n", aws.StringValue(m.detailInstance.InstanceType)) +
-					fmt.Sprintf("Launch Time:   %s\n", aws.TimeValue(m.detailInstance.LaunchTime).Format(time.RFC822)) +
-					fmt.Sprintf("Public IP:     %s\n", aws.StringValue(m.detailInstance.PublicIpAddress)) +
-					fmt.Sprintf("Private IP:    %s\n", aws.StringValue(m.detailInstance.PrivateIpAddress)) +
-					fmt.Sprintf("Availability Zone: %s\n", aws.StringValue(m.detailInstance.Placement.AvailabilityZone)) +
-					fmt.Sprintf("VPC ID:        %s\n", aws.StringValue(m.detailInstance.VpcId)) +
-					fmt.Sprintf("Subnet ID:     %s\n", aws.StringValue(m.detailInstance.SubnetId)) +
+			s.WriteString("\n" + detailStyle.Render(
+				fmt.Sprintf("Instance ID:   %s\n", aws.StringValue(m.detailInstance.InstanceId))+
+					fmt.Sprintf("Name:          %s\n", getInstanceName(m.detailInstance))+
+					fmt.Sprintf("State:         %s\n", aws.StringValue(m.detailInstance.State.Name))+
+					fmt.Sprintf("Type:          %s\n", aws.StringValue(m.detailInstance.InstanceType))+
+					fmt.Sprintf("Launch Time:   %s\n", aws.TimeValue(m.detailInstance.LaunchTime).Format(time.RFC822))+
+					fmt.Sprintf("Public IP:     %s\n", aws.StringValue(m.detailInstance.PublicIpAddress))+
+					fmt.Sprintf("Private IP:    %s\n", aws.StringValue(m.detailInstance.PrivateIpAddress))+
+					fmt.Sprintf("Availability Zone: %s\n", aws.StringValue(m.detailInstance.Placement.AvailabilityZone))+
+					fmt.Sprintf("VPC ID:        %s\n", aws.StringValue(m.detailInstance.VpcId))+
+					fmt.Sprintf("Subnet ID:     %s\n", aws.StringValue(m.detailInstance.SubnetId))+
 					// fmt.Sprintf("Security Groups: %s\n", getSecurityGroupNames(m.detailInstance.SecurityGroups)) +
-					"\nPress 'esc' or 'backspace' to go back." +
-					"\n" + statusStyle.Render(fmt.Sprintf("Status: %s", m.status)),
+					"\nPress 'esc' or 'backspace' to go back."+
+					"\n"+statusStyle.Render(fmt.Sprintf("Status: %s", m.status)),
 			))
 		} else {
 			s.WriteString(statusStyle.Render("No details available.\n"))
@@ -419,9 +432,13 @@ func startInstanceCmd(svc *ec2.EC2, instanceID *string) tea.Cmd {
 	}
 }
 
+type sshExitMsg struct {
+	err error
+}
+
 // sshIntoInstanceCmd executes an SSH command to connect to the given IP.
 func sshIntoInstanceCmd(publicIP string, keyName string) tea.Cmd {
-	return tea.ExecProcess(exec.Command("ssh", "-i", "~/.ssh/"+keyName+".pem", "ec2-user@"+publicIP), nil)
+	return tea.ExecProcess(exec.Command("ssh", "-i", "~/.ssh/"+keyName+".pem", "ec2-user@"+publicIP), func(err error) tea.Msg { return sshExitMsg{err: err} })
 }
 
 // getInstanceName extracts the "Name" tag from an EC2 instance.
@@ -451,6 +468,7 @@ type listKeyMap struct {
 	start   key.Binding
 	stop    key.Binding
 	ssh     key.Binding
+	refresh key.Binding
 }
 
 func newListKeyMap() *listKeyMap {
@@ -468,8 +486,12 @@ func newListKeyMap() *listKeyMap {
 			key.WithHelp("t", "start"),
 		),
 		ssh: key.NewBinding(
-			key.WithKeys("S"),
-			key.WithHelp("S", "ssh"),
+			key.WithKeys("x"),
+			key.WithHelp("x", "ssh"),
+		),
+		refresh: key.NewBinding(
+			key.WithKeys("r"),
+			key.WithHelp("r", "refresh"),
 		),
 	}
 }
@@ -489,7 +511,7 @@ func main() {
 	// Initialize the spinner model
 	s := spinner.New()
 	s.Spinner = spinner.Dot
-	s.Style = lipgloss.NewStyle().Foreground(lipgloss.Color("63")) // Purple color for spinner
+	s.Style = lipgloss.NewStyle().Foreground(tokyoNightCyan) // Purple color for spinner
 
 	var listkeys = newListKeyMap()
 
@@ -499,9 +521,9 @@ func main() {
 	l.SetShowStatusBar(false)
 	l.SetFilteringEnabled(true)
 	l.Styles.Title = headerStyle
-	l.Styles.FilterPrompt = lipgloss.NewStyle().Foreground(lipgloss.Color("205"))
-	l.Styles.FilterCursor = lipgloss.NewStyle().Foreground(lipgloss.Color("205"))
-	l.Styles.NoItems = statusStyle.Copy().UnsetPaddingLeft()
+	l.Styles.FilterPrompt = lipgloss.NewStyle().Foreground(tokyoNightGreen)
+	l.Styles.FilterCursor = lipgloss.NewStyle().Foreground(tokyoNightGreen)
+	l.Styles.NoItems = statusStyle.UnsetPaddingLeft()
 	l.SetStatusBarItemName("instance", "instances")
 	l.AdditionalFullHelpKeys = func() []key.Binding {
 		return []key.Binding{
@@ -509,6 +531,7 @@ func main() {
 			listkeys.start,
 			listkeys.stop,
 			listkeys.ssh,
+			listkeys.refresh,
 		}
 
 	}
