@@ -135,7 +135,6 @@ type (
 // Init initializes the model and starts fetching EC2 instances.
 func (m model) Init() tea.Cmd {
 	// Start the spinner animation
-	m.keys = newListKeyMap()
 	return tea.Batch(m.spinner.Tick, fetchInstancesCmd(m.ec2Svc))
 }
 
@@ -182,14 +181,14 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 		// Handle keys for the main list view
-		switch msg.String() {
-		case "ctrl+c", "q":
-			return m, tea.Quit
-		case "r":
-			m.status = "Refreshing instances..."
-			m.err = nil
-			return m, tea.Batch(m.spinner.Tick, fetchInstancesCmd(m.ec2Svc))
-		case "s":
+		switch {
+		// case "ctrl+c", "q":
+		// 	return m, tea.Quit
+		// case "r":
+		// 	m.status = "Refreshing instances..."
+		// 	m.err = nil
+		// 	return m, tea.Batch(m.spinner.Tick, fetchInstancesCmd(m.ec2Svc))
+		case key.Matches(msg, m.keys.stop):
 			if m.instanceList.SelectedItem() != nil {
 				selectedItem := m.instanceList.SelectedItem().(ec2InstanceItem)
 				selectedInstance := selectedItem.instance
@@ -203,7 +202,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.status = fmt.Sprintf("Instance %s is not running. Cannot stop.", getInstanceName(selectedInstance))
 				}
 			}
-		case "t":
+		case key.Matches(msg, m.keys.start):
 			if m.instanceList.SelectedItem() != nil {
 				selectedItem := m.instanceList.SelectedItem().(ec2InstanceItem)
 				selectedInstance := selectedItem.instance
@@ -217,7 +216,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.status = fmt.Sprintf("Instance %s is not stopped. Cannot start.", getInstanceName(selectedInstance))
 				}
 			}
-		case "d": // View details
+		case key.Matches(msg, m.keys.details): // View details
 			if m.instanceList.SelectedItem() != nil {
 				selectedItem := m.instanceList.SelectedItem().(ec2InstanceItem)
 				selectedInstance := selectedItem.instance
@@ -225,7 +224,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.err = nil
 				return m, tea.Batch(m.spinner.Tick, fetchInstanceDetailsCmd(m.ec2Svc, selectedInstance.InstanceId))
 			}
-		case "h": // SSH into instance
+		case key.Matches(msg, m.keys.ssh): // SSH into instance
 			if m.instanceList.SelectedItem() != nil {
 				selectedItem := m.instanceList.SelectedItem().(ec2InstanceItem)
 				selectedInstance := selectedItem.instance
@@ -236,7 +235,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				} else {
 					m.status = fmt.Sprintf("Attempting to SSH into %s (%s)...", getInstanceName(selectedInstance), publicIP)
 					m.err = nil
-					return m, sshIntoInstanceCmd(publicIP)
+					return m, sshIntoInstanceCmd(publicIP, aws.StringValue(selectedInstance.KeyName))
 				}
 			}
 		}
@@ -421,8 +420,8 @@ func startInstanceCmd(svc *ec2.EC2, instanceID *string) tea.Cmd {
 }
 
 // sshIntoInstanceCmd executes an SSH command to connect to the given IP.
-func sshIntoInstanceCmd(publicIP string) tea.Cmd {
-	return tea.ExecProcess(exec.Command("ssh", "ec2-user@"+publicIP), nil)
+func sshIntoInstanceCmd(publicIP string, keyName string) tea.Cmd {
+	return tea.ExecProcess(exec.Command("ssh", "-i", "~/.ssh/"+keyName+".pem", "ec2-user@"+publicIP), nil)
 }
 
 // getInstanceName extracts the "Name" tag from an EC2 instance.
@@ -520,6 +519,7 @@ func main() {
 		status:       "Loading instances...",
 		spinner:      s,
 		instanceList: l,
+		keys:         listkeys,
 	}
 
 	// Start the Bubble Tea program
