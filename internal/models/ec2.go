@@ -129,7 +129,7 @@ func (m ec2Model) Update(msg tea.Msg) (ec2Model, tea.Cmd) {
 				} else {
 					m.status = fmt.Sprintf("Attempting to SSH into %s (%s)...", utils.GetInstanceName(selectedInstance), publicIP)
 					m.err = nil
-					return m, commands.SshIntoInstanceCmd(publicIP, aws.StringValue(selectedInstance.KeyName))
+					return m, tea.Sequence(tea.ClearScreen, commands.SshIntoInstanceCmd(publicIP, aws.StringValue(selectedInstance.KeyName)))
 				}
 			}
 		}
