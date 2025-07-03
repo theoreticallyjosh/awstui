@@ -1,6 +1,7 @@
-package main
+package commands
 
 import (
+	"awstui/internal/messages"
 	"fmt"
 	"os/exec"
 	"strings"
@@ -13,12 +14,12 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 )
 
-// fetchInstancesCmd fetches EC2 instances from AWS.
-func fetchInstancesCmd(svc *ec2.EC2) tea.Cmd {
+// FetchInstancesCmd fetches EC2 instances from AWS.
+func FetchInstancesCmd(svc *ec2.EC2) tea.Cmd {
 	return func() tea.Msg {
 		result, err := svc.DescribeInstances(&ec2.DescribeInstancesInput{})
 		if err != nil {
-			return errMsg(fmt.Errorf("failed to describe instances: %w", err))
+			return messages.ErrMsg(fmt.Errorf("failed to describe instances: %w", err))
 		}
 
 		var instances []*ec2.Instance
@@ -29,90 +30,90 @@ func fetchInstancesCmd(svc *ec2.EC2) tea.Cmd {
 				}
 			}
 		}
-		return instancesFetchedMsg(instances)
+		return messages.InstancesFetchedMsg(instances)
 	}
 }
 
-// fetchInstanceDetailsCmd fetches details for a specific EC2 instance.
-func fetchInstanceDetailsCmd(svc *ec2.EC2, instanceID *string) tea.Cmd {
+// FetchInstanceDetailsCmd fetches details for a specific EC2 instance.
+func FetchInstanceDetailsCmd(svc *ec2.EC2, instanceID *string) tea.Cmd {
 	return func() tea.Msg {
 		result, err := svc.DescribeInstances(&ec2.DescribeInstancesInput{
 			InstanceIds: []*string{instanceID},
 		})
 		if err != nil {
-			return errMsg(fmt.Errorf("failed to describe instance %s details: %w", *instanceID, err))
+			return messages.ErrMsg(fmt.Errorf("failed to describe instance %s details: %w", *instanceID, err))
 		}
 
 		if len(result.Reservations) > 0 && len(result.Reservations[0].Instances) > 0 {
-			return instanceDetailsMsg(result.Reservations[0].Instances[0])
+			return messages.InstanceDetailsMsg(result.Reservations[0].Instances[0])
 		}
-		return errMsg(fmt.Errorf("instance %s not found", *instanceID))
+		return messages.ErrMsg(fmt.Errorf("instance %s not found", *instanceID))
 	}
 }
 
-// stopInstanceCmd stops a specific EC2 instance.
-func stopInstanceCmd(svc *ec2.EC2, instanceID *string) tea.Cmd {
+// StopInstanceCmd stops a specific EC2 instance.
+func StopInstanceCmd(svc *ec2.EC2, instanceID *string) tea.Cmd {
 	return func() tea.Msg {
 		_, err := svc.StopInstances(&ec2.StopInstancesInput{
 			InstanceIds: []*string{instanceID},
 		})
 		if err != nil {
-			return errMsg(fmt.Errorf("failed to stop instance %s: %w", *instanceID, err))
+			return messages.ErrMsg(fmt.Errorf("failed to stop instance %s: %w", *instanceID, err))
 		}
 		time.Sleep(2 * time.Second)
-		return instanceActionMsg("stopped")
+		return messages.InstanceActionMsg("stopped")
 	}
 }
 
-// startInstanceCmd starts a specific EC2 instance.
-func startInstanceCmd(svc *ec2.EC2, instanceID *string) tea.Cmd {
+// StartInstanceCmd starts a specific EC2 instance.
+func StartInstanceCmd(svc *ec2.EC2, instanceID *string) tea.Cmd {
 	return func() tea.Msg {
 		_, err := svc.StartInstances(&ec2.StartInstancesInput{
 			InstanceIds: []*string{instanceID},
 		})
 		if err != nil {
-			return errMsg(fmt.Errorf("failed to start instance %s: %w", *instanceID, err))
+			return messages.ErrMsg(fmt.Errorf("failed to start instance %s: %w", *instanceID, err))
 		}
 		time.Sleep(2 * time.Second)
-		return instanceActionMsg("started")
+		return messages.InstanceActionMsg("started")
 	}
 }
 
-// fetchECSClustersCmd fetches ECS clusters from AWS.
-func fetchECSClustersCmd(svc *ecs.ECS) tea.Cmd {
+// FetchECSClustersCmd fetches ECS clusters from AWS.
+func FetchECSClustersCmd(svc *ecs.ECS) tea.Cmd {
 	return func() tea.Msg {
 		listResult, err := svc.ListClusters(&ecs.ListClustersInput{})
 		if err != nil {
-			return errMsg(fmt.Errorf("failed to list ECS clusters: %w", err))
+			return messages.ErrMsg(fmt.Errorf("failed to list ECS clusters: %w", err))
 		}
 
 		if len(listResult.ClusterArns) == 0 {
-			return ecsClustersFetchedMsg([]*ecs.Cluster{})
+			return messages.EcsClustersFetchedMsg([]*ecs.Cluster{})
 		}
 
 		describeResult, err := svc.DescribeClusters(&ecs.DescribeClustersInput{
 			Clusters: listResult.ClusterArns,
 		})
 		if err != nil {
-			return errMsg(fmt.Errorf("failed to describe ECS clusters: %w", err))
+			return messages.ErrMsg(fmt.Errorf("failed to describe ECS clusters: %w", err))
 		}
 
-		return ecsClustersFetchedMsg(describeResult.Clusters)
+		return messages.EcsClustersFetchedMsg(describeResult.Clusters)
 	}
 }
 
-// fetchECSServicesCmd fetches ECS services for a given cluster ARN.
-func fetchECSServicesCmd(svc *ecs.ECS, clusterArn string) tea.Cmd {
+// FetchECSServicesCmd fetches ECS services for a given cluster ARN.
+func FetchECSServicesCmd(svc *ecs.ECS, clusterArn string) tea.Cmd {
 	return func() tea.Msg {
 		listResult, err := svc.ListServices(&ecs.ListServicesInput{
 			Cluster: aws.String(clusterArn),
 		})
 		if err != nil {
-			return errMsg(fmt.Errorf("failed to list ECS services for cluster %s: %w", clusterArn, err))
+			return messages.ErrMsg(fmt.Errorf("failed to list ECS services for cluster %s: %w", clusterArn, err))
 		}
 
 		if len(listResult.ServiceArns) == 0 {
-			return ecsServicesFetchedMsg([]*ecs.Service{})
+			return messages.EcsServicesFetchedMsg([]*ecs.Service{})
 		}
 
 		describeResult, err := svc.DescribeServices(&ecs.DescribeServicesInput{
@@ -120,33 +121,33 @@ func fetchECSServicesCmd(svc *ecs.ECS, clusterArn string) tea.Cmd {
 			Services: listResult.ServiceArns,
 		})
 		if err != nil {
-			return errMsg(fmt.Errorf("failed to describe ECS services for cluster %s: %w", clusterArn, err))
+			return messages.ErrMsg(fmt.Errorf("failed to describe ECS services for cluster %s: %w", clusterArn, err))
 		}
 
-		return ecsServicesFetchedMsg(describeResult.Services)
+		return messages.EcsServicesFetchedMsg(describeResult.Services)
 	}
 }
 
-// fetchECSServiceDetailsCmd fetches details for a specific ECS service.
-func fetchECSServiceDetailsCmd(svc *ecs.ECS, clusterArn, serviceArn string) tea.Cmd {
+// FetchECSServiceDetailsCmd fetches details for a specific ECS service.
+func FetchECSServiceDetailsCmd(svc *ecs.ECS, clusterArn, serviceArn string) tea.Cmd {
 	return func() tea.Msg {
 		describeResult, err := svc.DescribeServices(&ecs.DescribeServicesInput{
 			Cluster:  aws.String(clusterArn),
 			Services: []*string{aws.String(serviceArn)},
 		})
 		if err != nil {
-			return errMsg(fmt.Errorf("failed to describe ECS service %s details: %w", serviceArn, err))
+			return messages.ErrMsg(fmt.Errorf("failed to describe ECS service %s details: %w", serviceArn, err))
 		}
 
 		if len(describeResult.Services) > 0 {
-			return ecsServiceDetailsMsg(describeResult.Services[0])
+			return messages.EcsServiceDetailsMsg(describeResult.Services[0])
 		}
-		return errMsg(fmt.Errorf("ECS service %s not found", serviceArn))
+		return messages.ErrMsg(fmt.Errorf("ECS service %s not found", serviceArn))
 	}
 }
 
-// stopECSServiceCmd updates the desired count of an ECS service to 0 to stop it.
-func stopECSServiceCmd(svc *ecs.ECS, clusterArn, serviceArn string) tea.Cmd {
+// StopECSServiceCmd updates the desired count of an ECS service to 0 to stop it.
+func StopECSServiceCmd(svc *ecs.ECS, clusterArn, serviceArn string) tea.Cmd {
 	return func() tea.Msg {
 		_, err := svc.UpdateService(&ecs.UpdateServiceInput{
 			Cluster:      aws.String(clusterArn),
@@ -154,21 +155,21 @@ func stopECSServiceCmd(svc *ecs.ECS, clusterArn, serviceArn string) tea.Cmd {
 			DesiredCount: aws.Int64(0),
 		})
 		if err != nil {
-			return errMsg(fmt.Errorf("failed to stop ECS service %s: %w", serviceArn, err))
+			return messages.ErrMsg(fmt.Errorf("failed to stop ECS service %s: %w", serviceArn, err))
 		}
 		time.Sleep(2 * time.Second)
-		return ecsServiceActionMsg("stopped")
+		return messages.EcsServiceActionMsg("stopped")
 	}
 }
 
-// fetchECSServiceLogsCmd fetches logs for a specific ECS service from CloudWatch Logs.
-func fetchECSServiceLogsCmd(ecsSvc *ecs.ECS, cloudwatchlogsSvc *cloudwatchlogs.CloudWatchLogs, service *ecs.Service) tea.Cmd {
+// FetchECSServiceLogsCmd fetches logs for a specific ECS service from CloudWatch Logs.
+func FetchECSServiceLogsCmd(ecsSvc *ecs.ECS, cloudwatchlogsSvc *cloudwatchlogs.CloudWatchLogs, service *ecs.Service) tea.Cmd {
 	return func() tea.Msg {
 		var allLogs strings.Builder
 
 		taskDefinitionArn := aws.StringValue(service.TaskDefinition)
 		if taskDefinitionArn == "" {
-			return errMsg(fmt.Errorf("service %s has no associated task definition", aws.StringValue(service.ServiceName)))
+			return messages.ErrMsg(fmt.Errorf("service %s has no associated task definition", aws.StringValue(service.ServiceName)))
 		}
 
 		describeTaskDefResult, err := ecsSvc.DescribeTaskDefinition(&ecs.DescribeTaskDefinitionInput{
@@ -176,7 +177,7 @@ func fetchECSServiceLogsCmd(ecsSvc *ecs.ECS, cloudwatchlogsSvc *cloudwatchlogs.C
 		})
 		serviceName := strings.ReplaceAll(aws.StringValue(describeTaskDefResult.TaskDefinition.Family), "application-", "")
 		if err != nil {
-			return errMsg(fmt.Errorf("failed to describe task definition %s for service %s: %w", taskDefinitionArn, aws.StringValue(service.ServiceName), err))
+			return messages.ErrMsg(fmt.Errorf("failed to describe task definition %s for service %s: %w", taskDefinitionArn, aws.StringValue(service.ServiceName), err))
 		}
 
 		var logGroupName string
@@ -195,7 +196,7 @@ func fetchECSServiceLogsCmd(ecsSvc *ecs.ECS, cloudwatchlogsSvc *cloudwatchlogs.C
 		}
 
 		if logGroupName == "" {
-			return errMsg(fmt.Errorf("awslogs log group not found in task definition for service %s", aws.StringValue(service.ServiceName)))
+			return messages.ErrMsg(fmt.Errorf("awslogs log group not found in task definition for service %s", aws.StringValue(service.ServiceName)))
 		}
 
 		twentyFourHoursAgo := time.Now().Add(-24 * time.Hour).UnixMilli()
@@ -209,11 +210,11 @@ func fetchECSServiceLogsCmd(ecsSvc *ecs.ECS, cloudwatchlogsSvc *cloudwatchlogs.C
 			OrderBy:    aws.String("LastEventTime"),
 		})
 		if err != nil {
-			return errMsg(fmt.Errorf("failed to describe log streams for service %s (group: %s, prefix: %s): %w", aws.StringValue(service.ServiceName), logGroupName, streamNamePrefix, err))
+			return messages.ErrMsg(fmt.Errorf("failed to describe log streams for service %s (group: %s, prefix: %s): %w", aws.StringValue(service.ServiceName), logGroupName, streamNamePrefix, err))
 		}
 
 		if len(logStreamsResult.LogStreams) == 0 {
-			return ecsServiceLogsFetchedMsg(fmt.Sprintf("No log streams found for this service in the last 24 hours. (%s %s)", logGroupName, streamNamePrefix))
+			return messages.EcsServiceLogsFetchedMsg(fmt.Sprintf("No log streams found for this service in the last 24 hours. (%s %s)", logGroupName, streamNamePrefix))
 		}
 
 		for _, stream := range logStreamsResult.LogStreams {
@@ -241,16 +242,16 @@ func fetchECSServiceLogsCmd(ecsSvc *ecs.ECS, cloudwatchlogsSvc *cloudwatchlogs.C
 		}
 
 		if allLogs.Len() == 0 {
-			return ecsServiceLogsFetchedMsg("No logs found for this service in the last 24 hours.")
+			return messages.EcsServiceLogsFetchedMsg("No logs found for this service in the last 24 hours.")
 		}
 
-		return ecsServiceLogsFetchedMsg(allLogs.String())
+		return messages.EcsServiceLogsFetchedMsg(allLogs.String())
 	}
 }
 
-// sshIntoInstanceCmd executes an SSH command to connect to the given IP.
-func sshIntoInstanceCmd(publicIP string, keyName string) tea.Cmd {
+// SshIntoInstanceCmd executes an SSH command to connect to the given IP.
+func SshIntoInstanceCmd(publicIP string, keyName string) tea.Cmd {
 	return tea.ExecProcess(exec.Command("ssh", "-i", "~/.ssh/"+keyName+".pem", "ec2-user@"+publicIP), func(err error) tea.Msg {
-		return sshExitMsg{err: err}
+		return messages.SshExitMsg{Err: err}
 	})
 }

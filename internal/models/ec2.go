@@ -1,6 +1,11 @@
-package main
+package models
 
 import (
+	"awstui/internal/commands"
+	"awstui/internal/keys"
+	"awstui/internal/messages"
+	"awstui/internal/styles"
+	"awstui/internal/utils"
 	"fmt"
 	"time"
 
@@ -23,18 +28,18 @@ type ec2Model struct {
 	actionID       *string
 	showDetails    bool
 	detailInstance *ec2.Instance
-	keys           *listKeyMap
+	keys           *keys.ListKeyMap
 }
 
 func (m ec2Model) Init() tea.Cmd {
-	return tea.Batch(m.spinner.Tick, fetchInstancesCmd(m.ec2Svc))
+	return tea.Batch(m.spinner.Tick, commands.FetchInstancesCmd(m.ec2Svc))
 }
 
 func (m ec2Model) Update(msg tea.Msg) (ec2Model, tea.Cmd) {
 	var cmd tea.Cmd
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
-		h, v := appStyle.GetFrameSize()
+		h, v := styles.AppStyle.GetFrameSize()
 		m.instanceList.SetSize(msg.Width-2*h, msg.Height-2*v)
 		return m, nil
 	case tea.KeyMsg:
@@ -48,9 +53,9 @@ func (m ec2Model) Update(msg tea.Msg) (ec2Model, tea.Cmd) {
 				m.status = fmt.Sprintf("%sing instance %s...", m.action, *m.actionID)
 				m.err = nil
 				if m.action == "stop" {
-					return m, tea.Batch(m.spinner.Tick, stopInstanceCmd(m.ec2Svc, m.actionID))
+					return m, tea.Batch(m.spinner.Tick, commands.StopInstanceCmd(m.ec2Svc, m.actionID))
 				} else if m.action == "start" {
-					return m, tea.Batch(m.spinner.Tick, startInstanceCmd(m.ec2Svc, m.actionID))
+					return m, tea.Batch(m.spinner.Tick, commands.StartInstanceCmd(m.ec2Svc, m.actionID))
 				}
 			case "n", "N":
 				m.confirming = false
@@ -73,11 +78,11 @@ func (m ec2Model) Update(msg tea.Msg) (ec2Model, tea.Cmd) {
 		}
 
 		switch {
-		case key.Matches(msg, m.keys.refresh):
+		case key.Matches(msg, m.keys.Refresh):
 			m.status = "Refreshing instances..."
 			m.err = nil
-			return m, tea.Batch(m.spinner.Tick, fetchInstancesCmd(m.ec2Svc))
-		case key.Matches(msg, m.keys.stop):
+			return m, tea.Batch(m.spinner.Tick, commands.FetchInstancesCmd(m.ec2Svc))
+		case key.Matches(msg, m.keys.Stop):
 			if m.instanceList.SelectedItem() != nil {
 				selectedItem := m.instanceList.SelectedItem().(ec2InstanceItem)
 				selectedInstance := selectedItem.instance
@@ -86,12 +91,12 @@ func (m ec2Model) Update(msg tea.Msg) (ec2Model, tea.Cmd) {
 					m.action = "stop"
 					m.actionID = selectedInstance.InstanceId
 					m.status = fmt.Sprintf("Confirm stopping instance %s (%s)? (y/N)",
-						getInstanceName(selectedInstance), *selectedInstance.InstanceId)
+						utils.GetInstanceName(selectedInstance), *selectedInstance.InstanceId)
 				} else {
-					m.status = fmt.Sprintf("Instance %s is not running. Cannot stop.", getInstanceName(selectedInstance))
+					m.status = fmt.Sprintf("Instance %s is not running. Cannot stop.", utils.GetInstanceName(selectedInstance))
 				}
 			}
-		case key.Matches(msg, m.keys.start):
+		case key.Matches(msg, m.keys.Start):
 			if m.instanceList.SelectedItem() != nil {
 				selectedItem := m.instanceList.SelectedItem().(ec2InstanceItem)
 				selectedInstance := selectedItem.instance
@@ -100,20 +105,20 @@ func (m ec2Model) Update(msg tea.Msg) (ec2Model, tea.Cmd) {
 					m.action = "start"
 					m.actionID = selectedInstance.InstanceId
 					m.status = fmt.Sprintf("Confirm starting instance %s (%s)? (y/N)",
-						getInstanceName(selectedInstance), *selectedInstance.InstanceId)
+						utils.GetInstanceName(selectedInstance), *selectedInstance.InstanceId)
 				} else {
-					m.status = fmt.Sprintf("Instance %s is not stopped. Cannot start.", getInstanceName(selectedInstance))
+					m.status = fmt.Sprintf("Instance %s is not stopped. Cannot start.", utils.GetInstanceName(selectedInstance))
 				}
 			}
-		case key.Matches(msg, m.keys.details):
+		case key.Matches(msg, m.keys.Details):
 			if m.instanceList.SelectedItem() != nil {
 				selectedItem := m.instanceList.SelectedItem().(ec2InstanceItem)
 				selectedInstance := selectedItem.instance
 				m.status = "Fetching instance details..."
 				m.err = nil
-				return m, tea.Batch(m.spinner.Tick, fetchInstanceDetailsCmd(m.ec2Svc, selectedInstance.InstanceId))
+				return m, tea.Batch(m.spinner.Tick, commands.FetchInstanceDetailsCmd(m.ec2Svc, selectedInstance.InstanceId))
 			}
-		case key.Matches(msg, m.keys.ssh):
+		case key.Matches(msg, m.keys.Ssh):
 			if m.instanceList.SelectedItem() != nil {
 				selectedItem := m.instanceList.SelectedItem().(ec2InstanceItem)
 				selectedInstance := selectedItem.instance
@@ -122,16 +127,16 @@ func (m ec2Model) Update(msg tea.Msg) (ec2Model, tea.Cmd) {
 					m.status = "Selected instance has no public IP address for SSH."
 					m.err = fmt.Errorf("no public IP for SSH")
 				} else {
-					m.status = fmt.Sprintf("Attempting to SSH into %s (%s)...", getInstanceName(selectedInstance), publicIP)
+					m.status = fmt.Sprintf("Attempting to SSH into %s (%s)...", utils.GetInstanceName(selectedInstance), publicIP)
 					m.err = nil
-					return m, sshIntoInstanceCmd(publicIP, aws.StringValue(selectedInstance.KeyName))
+					return m, commands.SshIntoInstanceCmd(publicIP, aws.StringValue(selectedInstance.KeyName))
 				}
 			}
 		}
 	case spinner.TickMsg:
 		m.spinner, cmd = m.spinner.Update(msg)
 		return m, cmd
-	case instancesFetchedMsg:
+	case messages.InstancesFetchedMsg:
 		listItems := make([]list.Item, len(msg))
 		for i, instance := range msg {
 			listItems[i] = ec2InstanceItem{instance: instance}
@@ -140,28 +145,28 @@ func (m ec2Model) Update(msg tea.Msg) (ec2Model, tea.Cmd) {
 		m.status = "Ready"
 		m.err = nil
 		return m, nil
-	case instanceActionMsg:
+	case messages.InstanceActionMsg:
 		m.status = fmt.Sprintf("Instance %s %s. Refreshing...", *m.actionID, msg)
 		m.err = nil
 		m.action = ""
 		m.actionID = nil
-		return m, tea.Batch(m.spinner.Tick, fetchInstancesCmd(m.ec2Svc))
-	case instanceDetailsMsg:
+		return m, tea.Batch(m.spinner.Tick, commands.FetchInstancesCmd(m.ec2Svc))
+	case messages.InstanceDetailsMsg:
 		m.detailInstance = msg
 		m.showDetails = true
 		m.status = "Ready"
 		m.err = nil
 		return m, nil
-	case sshExitMsg:
-		if msg.err != nil {
-			m.err = fmt.Errorf("SSH command failed: %s", msg.err)
+	case messages.SshExitMsg:
+		if msg.Err != nil {
+			m.err = fmt.Errorf("SSH command failed: %s", msg.Err)
 			m.status = "SSH Failed"
 		} else {
 			m.status = "SSH session ended."
 			m.err = nil
 		}
-		return m, tea.Batch(m.spinner.Tick, fetchInstancesCmd(m.ec2Svc))
-	case errMsg:
+		return m, tea.Batch(m.spinner.Tick, commands.FetchInstancesCmd(m.ec2Svc))
+	case messages.ErrMsg:
 		m.err = msg
 		m.status = "Error"
 		m.confirming = false
@@ -178,9 +183,9 @@ func (m ec2Model) Update(msg tea.Msg) (ec2Model, tea.Cmd) {
 func (m ec2Model) View() string {
 	if m.showDetails {
 		if m.detailInstance != nil {
-			return detailStyle.Render(
+			return styles.DetailStyle.Render(
 				fmt.Sprintf("Instance ID:   %s\n", aws.StringValue(m.detailInstance.InstanceId)) +
-					fmt.Sprintf("Name:          %s\n", getInstanceName(m.detailInstance)) +
+					fmt.Sprintf("Name:          %s\n", utils.GetInstanceName(m.detailInstance)) +
 					fmt.Sprintf("State:         %s\n", aws.StringValue(m.detailInstance.State.Name)) +
 					fmt.Sprintf("Type:          %s\n", aws.StringValue(m.detailInstance.InstanceType)) +
 					fmt.Sprintf("Launch Time:   %s\n", aws.TimeValue(m.detailInstance.LaunchTime).Format(time.RFC822)) +
@@ -190,25 +195,25 @@ func (m ec2Model) View() string {
 					fmt.Sprintf("VPC ID:        %s\n", aws.StringValue(m.detailInstance.VpcId)) +
 					fmt.Sprintf("Subnet ID:     %s\n", aws.StringValue(m.detailInstance.SubnetId)) +
 					"\nPress 'esc' or 'backspace' to go back." +
-					"\n" + statusStyle.Render(fmt.Sprintf("Status: %s", m.status)),
+					"\n" + styles.StatusStyle.Render(fmt.Sprintf("Status: %s", m.status)),
 			)
 		}
-		return statusStyle.Render("No details available.\n")
+		return styles.StatusStyle.Render("No details available.\n")
 	}
 
 	var s string
 	if len(m.instanceList.Items()) == 0 && m.status == "Ready" {
-		s = statusStyle.Render("No EC2 instances found in this region.\n")
+		s = styles.StatusStyle.Render("No EC2 instances found in this region.\n")
 	} else {
 		s = m.instanceList.View()
 	}
 
 	if m.status != "Ready" && m.status != "Error" {
-		s += statusStyle.Render(fmt.Sprintf("\n%s %s", m.spinner.View(), m.status))
+		s += styles.StatusStyle.Render(fmt.Sprintf("\n%s %s", m.spinner.View(), m.status))
 	} else if m.confirming {
-		s += confirmStyle.Render(fmt.Sprintf("\n%s", m.status))
+		s += styles.ConfirmStyle.Render(fmt.Sprintf("\n%s", m.status))
 	} else {
-		s += statusStyle.Render(fmt.Sprintf("\nStatus: %s", m.status))
+		s += styles.StatusStyle.Render(fmt.Sprintf("\nStatus: %s", m.status))
 	}
 	return s
 }

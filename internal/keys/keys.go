@@ -1,39 +1,39 @@
-package main
+package keys
 
 import "github.com/charmbracelet/bubbles/key"
 
-type listKeyMap struct {
-	details key.Binding
-	start   key.Binding
-	stop    key.Binding
-	ssh     key.Binding
-	refresh key.Binding
-	logs    key.Binding
+type ListKeyMap struct {
+	Details key.Binding
+	Start   key.Binding
+	Stop    key.Binding
+	Ssh     key.Binding
+	Refresh key.Binding
+	Logs    key.Binding
 }
 
-func newListKeyMap() *listKeyMap {
-	return &listKeyMap{
-		details: key.NewBinding(
+func NewListKeyMap() *ListKeyMap {
+	return &ListKeyMap{
+		Details: key.NewBinding(
 			key.WithKeys("d"),
 			key.WithHelp("d", "details"),
 		),
-		stop: key.NewBinding(
+		Stop: key.NewBinding(
 			key.WithKeys("s"),
 			key.WithHelp("s", "stop"),
 		),
-		start: key.NewBinding(
+		Start: key.NewBinding(
 			key.WithKeys("t"),
 			key.WithHelp("t", "start"),
 		),
-		ssh: key.NewBinding(
+		Ssh: key.NewBinding(
 			key.WithKeys("x"),
 			key.WithHelp("x", "ssh"),
 		),
-		refresh: key.NewBinding(
+		Refresh: key.NewBinding(
 			key.WithKeys("r"),
 			key.WithHelp("r", "refresh"),
 		),
-		logs: key.NewBinding(
+		Logs: key.NewBinding(
 			key.WithKeys("l"),
 			key.WithHelp("l", "logs"),
 		),

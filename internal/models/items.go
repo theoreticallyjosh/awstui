@@ -1,6 +1,8 @@
-package main
+package models
 
 import (
+	"awstui/internal/styles"
+	"awstui/internal/utils"
 	"fmt"
 	"io"
 
@@ -19,17 +21,17 @@ type ec2InstanceItem struct {
 
 // FilterValue implements list.Item.
 func (i ec2InstanceItem) FilterValue() string {
-	return getInstanceName(i.instance) + " " + aws.StringValue(i.instance.InstanceId) + " " + aws.StringValue(i.instance.State.Name)
+	return utils.GetInstanceName(i.instance) + " " + aws.StringValue(i.instance.InstanceId) + " " + aws.StringValue(i.instance.State.Name)
 }
 
 // Title implements list.DefaultItem.
 func (i ec2InstanceItem) Title() string {
-	return titleStyle.Render(fmt.Sprintf("%s (%s)", getInstanceName(i.instance), aws.StringValue(i.instance.InstanceId)))
+	return styles.TitleStyle.Render(fmt.Sprintf("%s (%s)", utils.GetInstanceName(i.instance), aws.StringValue(i.instance.InstanceId)))
 }
 
 // Description implements list.DefaultItem.
 func (i ec2InstanceItem) Description() string {
-	return descriptionStyle.Render(fmt.Sprintf("Type: %s | State: %s | Public IP: %s",
+	return styles.DescriptionStyle.Render(fmt.Sprintf("Type: %s | State: %s | Public IP: %s",
 		aws.StringValue(i.instance.InstanceType),
 		aws.StringValue(i.instance.State.Name),
 		aws.StringValue(i.instance.PublicIpAddress),
@@ -48,12 +50,12 @@ func (i ecsClusterItem) FilterValue() string {
 
 // Title implements list.DefaultItem for ECS clusters.
 func (i ecsClusterItem) Title() string {
-	return titleStyle.Render(fmt.Sprintf("%s", aws.StringValue(i.cluster.ClusterName)))
+	return styles.TitleStyle.Render(fmt.Sprintf("%s", aws.StringValue(i.cluster.ClusterName)))
 }
 
 // Description implements list.DefaultItem for ECS clusters.
 func (i ecsClusterItem) Description() string {
-	return descriptionStyle.Render(fmt.Sprintf("Status: %s | Services: %d | Tasks: %d | Container Instances: %d",
+	return styles.DescriptionStyle.Render(fmt.Sprintf("Status: %s | Services: %d | Tasks: %d | Container Instances: %d",
 		aws.StringValue(i.cluster.Status),
 		aws.Int64Value(i.cluster.ActiveServicesCount),
 		aws.Int64Value(i.cluster.RunningTasksCount),
@@ -73,12 +75,12 @@ func (i ecsServiceItem) FilterValue() string {
 
 // Title implements list.DefaultItem for ECS services.
 func (i ecsServiceItem) Title() string {
-	return titleStyle.Render(fmt.Sprintf("%s", aws.StringValue(i.service.ServiceName)))
+	return styles.TitleStyle.Render(fmt.Sprintf("%s", aws.StringValue(i.service.ServiceName)))
 }
 
 // Description implements list.DefaultItem for ECS services.
 func (i ecsServiceItem) Description() string {
-	return descriptionStyle.Render(fmt.Sprintf("Status: %s | Desired: %d | Running: %d | Pending: %d",
+	return styles.DescriptionStyle.Render(fmt.Sprintf("Status: %s | Desired: %d | Running: %d | Pending: %d",
 		aws.StringValue(i.service.Status),
 		aws.Int64Value(i.service.DesiredCount),
 		aws.Int64Value(i.service.RunningCount),
@@ -86,22 +88,22 @@ func (i ecsServiceItem) Description() string {
 	))
 }
 
-// itemDelegate customizes how each item in the list is rendered.
-type itemDelegate struct {
+// ItemDelegate customizes how each item in the list is rendered.
+type ItemDelegate struct {
 }
 
-func (d itemDelegate) Height() int                               { return 2 }
-func (d itemDelegate) Spacing() int                              { return 1 }
-func (d itemDelegate) Update(msg tea.Msg, m *list.Model) tea.Cmd { return nil }
+func (d ItemDelegate) Height() int                               { return 2 }
+func (d ItemDelegate) Spacing() int                              { return 1 }
+func (d ItemDelegate) Update(msg tea.Msg, m *list.Model) tea.Cmd { return nil }
 
-func (d itemDelegate) Render(w io.Writer, m list.Model, index int, item list.Item) {
+func (d ItemDelegate) Render(w io.Writer, m list.Model, index int, item list.Item) {
 	var title, description string
 	var style lipgloss.Style
 
 	if index == m.Index() {
-		style = selectedItemStyle
+		style = styles.SelectedItemStyle
 	} else {
-		style = unselectedItemStyle
+		style = styles.UnselectedItemStyle
 	}
 
 	switch i := item.(type) {
