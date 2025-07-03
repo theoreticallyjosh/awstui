@@ -92,20 +92,33 @@ func main() {
 		}
 	}
 
-	// Create initial model
-	m := model{
-		ec2Svc:            ec2Svc,
+	ec2Model := ec2Model{
+		ec2Svc:       ec2Svc,
+		instanceList: ec2List,
+		spinner:      s,
+		keys:         listkeys,
+	}
+
+	ecsModel := ecsModel{
 		ecsSvc:            ecsSvc,
 		cloudwatchlogsSvc: cloudwatchlogsSvc,
-		status:            "Select an option.",
-		spinner:           s,
-		instanceList:      ec2List,
 		clusterList:       ecsClusterList,
 		serviceList:       ecsServiceList,
+		spinner:           s,
 		keys:              listkeys,
-		state:             stateMenu,
-		menuChoices:       []string{"EC2 Instances", "ECS Clusters"},
-		menuCursor:        0,
+		state:             ecsStateClusterList,
+	}
+
+	// Create initial model
+	m := model{
+		ec2Model:    ec2Model,
+		ecsModel:    ecsModel,
+		status:      "Select an option.",
+		spinner:     s,
+		keys:        listkeys,
+		state:       stateMenu,
+		menuChoices: []string{"EC2 Instances", "ECS Clusters"},
+		menuCursor:  0,
 	}
 
 	// Start the Bubble Tea program

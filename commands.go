@@ -248,11 +248,9 @@ func fetchECSServiceLogsCmd(ecsSvc *ecs.ECS, cloudwatchlogsSvc *cloudwatchlogs.C
 	}
 }
 
-type sshExitMsg struct {
-	err error
-}
-
 // sshIntoInstanceCmd executes an SSH command to connect to the given IP.
 func sshIntoInstanceCmd(publicIP string, keyName string) tea.Cmd {
-	return tea.ExecProcess(exec.Command("ssh", "-i", "~/.ssh/"+keyName+".pem", "ec2-user@"+publicIP), func(err error) tea.Msg { return sshExitMsg{err: err} })
+	return tea.ExecProcess(exec.Command("ssh", "-i", "~/.ssh/"+keyName+".pem", "ec2-user@"+publicIP), func(err error) tea.Msg {
+		return sshExitMsg{err: err}
+	})
 }
