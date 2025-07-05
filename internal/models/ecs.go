@@ -6,6 +6,7 @@ import (
 	"awstui/internal/messages"
 	"awstui/internal/styles"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/aws/aws-sdk-go/aws"
@@ -13,6 +14,7 @@ import (
 	"github.com/aws/aws-sdk-go/service/ecs"
 	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/bubbles/list"
+	"github.com/charmbracelet/bubbles/paginator"
 	tea "github.com/charmbracelet/bubbletea"
 )
 
@@ -41,6 +43,7 @@ type ecsModel struct {
 	ecsServiceActionService *ecs.Service
 	serviceLogs             string
 	keys                    *keys.ListKeyMap
+	paginator               paginator.Model
 	state                   ecsState
 }
 
@@ -50,13 +53,44 @@ func (m ecsModel) Init() tea.Cmd {
 
 func (m ecsModel) Update(msg tea.Msg) (ecsModel, tea.Cmd) {
 	var cmd tea.Cmd
+
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		h, v := styles.AppStyle.GetFrameSize()
-		m.clusterList.SetSize(msg.Width-2*h, msg.Height-2*v)
-		m.serviceList.SetSize(msg.Width-2*h, msg.Height-2*v)
+		m.paginator.PerPage = msg.Height - 7*v
+		m.clusterList.SetSize(msg.Width-3*h, msg.Height-3*v)
+		m.serviceList.SetSize(msg.Width-3*h, msg.Height-3*v)
 		return m, nil
 	case tea.KeyMsg:
+		switch {
+		case key.Matches(msg, key.NewBinding(key.WithKeys("backspace", "esc"), key.WithHelp("backspace/esc", "back"))):
+			if m.state == ecsStateServiceList {
+				m.state = ecsStateClusterList
+				m.status = "Ready"
+				m.err = nil
+				m.serviceList.SetItems([]list.Item{})
+				return m, nil
+			} else if m.state == ecsStateServiceDetails {
+				m.state = ecsStateServiceList
+				m.status = "Ready"
+				m.err = nil
+				m.detailService = nil
+				return m, nil
+			} else if m.state == ecsStateServiceConfirmAction {
+				m.state = ecsStateServiceList
+				m.confirming = false
+				m.action = ""
+				m.ecsServiceActionService = nil
+				m.status = "Action cancelled."
+				return m, nil
+			} else if m.state == ecsStateServiceLogs {
+				m.state = ecsStateServiceList
+				m.status = "Ready"
+				m.err = nil
+				m.serviceLogs = ""
+				return m, nil
+			}
+		}
 		if m.state == ecsStateServiceConfirmAction {
 			switch msg.String() {
 			case "y", "Y":
@@ -135,39 +169,13 @@ func (m ecsModel) Update(msg tea.Msg) (ecsModel, tea.Cmd) {
 					return m, tea.Batch(m.parent.spinner.Tick, commands.FetchECSServiceLogsCmd(m.ecsSvc, m.cloudwatchlogsSvc, selectedItem.service))
 				}
 			}
-		case ecsStateServiceDetails, ecsStateServiceLogs:
+		case ecsStateServiceDetails:
 			// No key handling in these states for now
+		case ecsStateServiceLogs:
+			m.paginator, cmd = m.paginator.Update(msg)
+			return m, cmd
 		}
 
-		switch {
-		case key.Matches(msg, key.NewBinding(key.WithKeys("backspace", "esc"), key.WithHelp("backspace/esc", "back"))):
-			if m.state == ecsStateServiceList {
-				m.state = ecsStateClusterList
-				m.status = "Ready"
-				m.err = nil
-				m.serviceList.SetItems([]list.Item{})
-				return m, nil
-			} else if m.state == ecsStateServiceDetails {
-				m.state = ecsStateServiceList
-				m.status = "Ready"
-				m.err = nil
-				m.detailService = nil
-				return m, nil
-			} else if m.state == ecsStateServiceConfirmAction {
-				m.state = ecsStateServiceList
-				m.confirming = false
-				m.action = ""
-				m.ecsServiceActionService = nil
-				m.status = "Action cancelled."
-				return m, nil
-			} else if m.state == ecsStateServiceLogs {
-				m.state = ecsStateServiceList
-				m.status = "Ready"
-				m.err = nil
-				m.serviceLogs = ""
-				return m, nil
-			}
-		}
 	case messages.EcsClustersFetchedMsg:
 		listItems := make([]list.Item, len(msg))
 		for i, cluster := range msg {
@@ -201,6 +209,7 @@ func (m ecsModel) Update(msg tea.Msg) (ecsModel, tea.Cmd) {
 		return m, tea.Batch(m.parent.spinner.Tick, commands.FetchECSServicesCmd(m.ecsSvc, aws.StringValue(m.detailCluster.ClusterArn)))
 	case messages.EcsServiceLogsFetchedMsg:
 		m.serviceLogs = string(msg)
+		m.paginator.SetTotalPages(len(strings.Split(m.serviceLogs, "\n")))
 		m.status = "Ready"
 		m.err = nil
 		return m, nil
@@ -232,15 +241,15 @@ func (m ecsModel) View() string {
 			s = m.clusterList.View()
 		}
 	case ecsStateServiceList:
-		s = styles.HeaderStyle.Render(fmt.Sprintf("ECS Services in Cluster: %s\n", aws.StringValue(m.detailCluster.ClusterName)))
+		s = styles.SubHeaderStyle.Render(fmt.Sprintf("ECS Services in Cluster: %s", aws.StringValue(m.detailCluster.ClusterName))) + "\n"
 		if len(m.serviceList.Items()) == 0 && m.status == "Ready" {
-			s += styles.StatusStyle.Render("No ECS services found in this cluster.\n")
+			s += styles.StatusStyle.Render("No ECS services found in this cluster.") + "\n"
 		} else {
 			s += m.serviceList.View()
 		}
 	case ecsStateServiceDetails:
 		if m.detailService != nil {
-			s = styles.HeaderStyle.Render(fmt.Sprintf("ECS Service Details: %s\n", aws.StringValue(m.detailService.ServiceName)))
+			s = styles.SubHeaderStyle.Render(fmt.Sprintf("ECS Service Details: %s", aws.StringValue(m.detailService.ServiceName))) + "\n"
 			s += "\n" + styles.DetailStyle.Render(
 				fmt.Sprintf("Service Name:  %s\n", aws.StringValue(m.detailService.ServiceName))+
 					fmt.Sprintf("Service ARN:   %s\n", aws.StringValue(m.detailService.ServiceArn))+
@@ -260,12 +269,17 @@ func (m ecsModel) View() string {
 	case ecsStateServiceConfirmAction:
 		s = styles.ConfirmStyle.Render(fmt.Sprintf("\n%s", m.status))
 	case ecsStateServiceLogs:
-		s = styles.HeaderStyle.Render(fmt.Sprintf("Logs for Service: %s\n", aws.StringValue(m.detailService.ServiceName)))
+		s = styles.SubHeaderStyle.Render(fmt.Sprintf("Logs for Service: %s", aws.StringValue(m.detailService.ServiceName))) + "\n"
 		if m.serviceLogs == "" && m.status == "Ready" {
 			s += styles.StatusStyle.Render("No logs found for this service.\n")
 		} else {
-			s += "\n" + styles.DetailStyle.Render(m.serviceLogs)
+			lines := strings.Split(m.serviceLogs, "\n")
+			start, end := m.paginator.GetSliceBounds(len(lines))
+			for _, item := range lines[start:end] {
+				s += item + "\n"
+			}
 		}
+		s += styles.PaginatorStyle.Render(m.paginator.View())
 		s += styles.StatusStyle.Render("\nPress 'esc' or 'backspace' to go back.")
 	}
 

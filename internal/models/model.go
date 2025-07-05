@@ -14,6 +14,7 @@ import (
 	"github.com/aws/aws-sdk-go/service/ecs"
 	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/bubbles/list"
+	"github.com/charmbracelet/bubbles/paginator"
 	"github.com/charmbracelet/bubbles/spinner"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -66,7 +67,7 @@ func NewModel() Model {
 	ec2List.Title = "EC2 Instances"
 	ec2List.SetShowStatusBar(false)
 	ec2List.SetFilteringEnabled(true)
-	ec2List.Styles.Title = styles.HeaderStyle
+	ec2List.Styles.Title = styles.SubHeaderStyle
 	ec2List.Styles.FilterPrompt = lipgloss.NewStyle().Foreground(styles.TokyoNightGreen)
 	ec2List.Styles.FilterCursor = lipgloss.NewStyle().Foreground(styles.TokyoNightGreen)
 	ec2List.Styles.NoItems = styles.StatusStyle.UnsetPaddingLeft()
@@ -86,7 +87,7 @@ func NewModel() Model {
 	ecsClusterList.Title = "ECS Clusters"
 	ecsClusterList.SetShowStatusBar(false)
 	ecsClusterList.SetFilteringEnabled(true)
-	ecsClusterList.Styles.Title = styles.HeaderStyle
+	ecsClusterList.Styles.Title = styles.SubHeaderStyle
 	ecsClusterList.Styles.FilterPrompt = lipgloss.NewStyle().Foreground(styles.TokyoNightGreen)
 	ecsClusterList.Styles.FilterCursor = lipgloss.NewStyle().Foreground(styles.TokyoNightGreen)
 	ecsClusterList.Styles.NoItems = styles.StatusStyle.UnsetPaddingLeft()
@@ -102,7 +103,7 @@ func NewModel() Model {
 	ecsServiceList.Title = "ECS Services"
 	ecsServiceList.SetShowStatusBar(false)
 	ecsServiceList.SetFilteringEnabled(true)
-	ecsServiceList.Styles.Title = styles.HeaderStyle
+	ecsServiceList.Styles.Title = styles.SubHeaderStyle
 	ecsServiceList.Styles.FilterPrompt = lipgloss.NewStyle().Foreground(styles.TokyoNightGreen)
 	ecsServiceList.Styles.FilterCursor = lipgloss.NewStyle().Foreground(styles.TokyoNightGreen)
 	ecsServiceList.Styles.NoItems = styles.StatusStyle.UnsetPaddingLeft()
@@ -115,6 +116,12 @@ func NewModel() Model {
 			listkeys.Logs,
 		}
 	}
+
+	pager := paginator.New()
+	pager.Type = paginator.Dots
+	pager.ActiveDot = lipgloss.NewStyle().Foreground(lipgloss.AdaptiveColor{Light: "235", Dark: "252"}).Render("•")
+	pager.InactiveDot = lipgloss.NewStyle().Foreground(lipgloss.AdaptiveColor{Light: "250", Dark: "238"}).Render("•")
+
 	// Create initial model
 	m := Model{
 		status:      "Select an option.",
@@ -140,6 +147,7 @@ func NewModel() Model {
 		cloudwatchlogsSvc: cloudwatchlogsSvc,
 		clusterList:       ecsClusterList,
 		serviceList:       ecsServiceList,
+		paginator:         pager,
 		keys:              listkeys,
 		state:             ecsStateClusterList,
 	}
@@ -232,25 +240,25 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 func (m Model) View() string {
 	var s strings.Builder
 
-	s.WriteString(styles.HeaderStyle.Render("AWS Resource Manager\n"))
+	s.WriteString(styles.HeaderStyle.Render("AWS Resource Manager") + "\n")
 
 	if m.err != nil {
-		s.WriteString(styles.ErrorStyle.Render(fmt.Sprintf("Error: %v\n", m.err)))
+		s.WriteString(styles.ErrorStyle.Render(fmt.Sprintf("Error: %v", m.err)) + "\n")
 	}
 
 	switch m.state {
 	case stateMenu:
 		s.WriteString("\nSelect a resource type:\n\n")
 		for i, choice := range m.menuChoices {
-			cursor := " "
+			cursor := ""
 			if m.menuCursor == i {
-				cursor = ">"
+				cursor = ""
 				s.WriteString(fmt.Sprintf("%s %s\n", cursor, styles.SelectedItemStyle.Render(choice)))
 			} else {
 				s.WriteString(fmt.Sprintf("%s %s\n", cursor, styles.MenuItemStyle.Render(choice)))
 			}
 		}
-		s.WriteString(styles.StatusStyle.Render("\n(Press 'q' or 'ctrl+c' to quit)\n"))
+		s.WriteString(styles.StatusStyle.Render("\n(Press 'q' or 'ctrl+c' to quit)") + "\n")
 
 	case stateEC2:
 		s.WriteString(m.ec2Model.View())

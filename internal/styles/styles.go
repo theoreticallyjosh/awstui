@@ -12,6 +12,7 @@ var (
 	TokyoNightCyan    = lipgloss.Color("#7DCFFF")
 	TokyoNightGray    = lipgloss.Color("#A9B1D6")
 	TokyoNightDarkBg  = lipgloss.Color("#1A1B26")
+	TokyoNightLightBg = lipgloss.Color("#222436")
 	TokyoNightLightFg = lipgloss.Color("#C0CAF5")
 )
 
@@ -24,6 +25,10 @@ var (
 			Bold(true).
 			PaddingBottom(1)
 
+	SubHeaderStyle = lipgloss.NewStyle().
+			Foreground(TokyoNightGreen).
+			Bold(true).
+			PaddingBottom(1)
 	StatusStyle = lipgloss.NewStyle().
 			Foreground(TokyoNightGray).
 			PaddingTop(1)
@@ -43,11 +48,14 @@ var (
 			BorderForeground(TokyoNightBlue).
 			Padding(1, 2)
 
-	TitleStyle          = lipgloss.NewStyle().Bold(true)
-	DescriptionStyle    = lipgloss.NewStyle().Foreground(TokyoNightGray)
-	SelectedItemStyle   = lipgloss.NewStyle().Foreground(TokyoNightBlue)
-	UnselectedItemStyle = lipgloss.NewStyle()
+	TitleStyle        = lipgloss.NewStyle().Bold(true)
+	DescriptionStyle  = lipgloss.NewStyle().Foreground(TokyoNightGray)
+	SelectedItemStyle = lipgloss.NewStyle().Foreground(TokyoNightBlue).Background(TokyoNightLightBg).Border(lipgloss.NormalBorder(), false, false, false, true).
+				BorderForeground(TokyoNightBlue).BorderBackground(TokyoNightLightBg)
+	UnselectedItemStyle = lipgloss.NewStyle().PaddingLeft(1)
 
-	MenuItemStyle         = lipgloss.NewStyle()
+	PaginatorStyle = lipgloss.NewStyle()
+
+	MenuItemStyle         = lipgloss.NewStyle().PaddingLeft(1)
 	SelectedMenuItemStyle = lipgloss.NewStyle().Foreground(TokyoNightBlue).String()
 )
