@@ -13,16 +13,15 @@ import (
 	"github.com/aws/aws-sdk-go/service/ec2"
 	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/bubbles/list"
-	"github.com/charmbracelet/bubbles/spinner"
 	tea "github.com/charmbracelet/bubbletea"
 )
 
 type ec2Model struct {
+	parent         *Model
 	ec2Svc         *ec2.EC2
 	instanceList   list.Model
 	status         string
 	err            error
-	spinner        spinner.Model
 	confirming     bool
 	action         string
 	actionID       *string
@@ -32,7 +31,7 @@ type ec2Model struct {
 }
 
 func (m ec2Model) Init() tea.Cmd {
-	return tea.Batch(m.spinner.Tick, commands.FetchInstancesCmd(m.ec2Svc))
+	return tea.Batch(m.parent.spinner.Tick, commands.FetchInstancesCmd(m.ec2Svc))
 }
 
 func (m ec2Model) Update(msg tea.Msg) (ec2Model, tea.Cmd) {
@@ -53,9 +52,9 @@ func (m ec2Model) Update(msg tea.Msg) (ec2Model, tea.Cmd) {
 				m.status = fmt.Sprintf("%sing instance %s...", m.action, *m.actionID)
 				m.err = nil
 				if m.action == "stop" {
-					return m, tea.Batch(m.spinner.Tick, commands.StopInstanceCmd(m.ec2Svc, m.actionID))
+					return m, tea.Batch(m.parent.spinner.Tick, commands.StopInstanceCmd(m.ec2Svc, m.actionID))
 				} else if m.action == "start" {
-					return m, tea.Batch(m.spinner.Tick, commands.StartInstanceCmd(m.ec2Svc, m.actionID))
+					return m, tea.Batch(m.parent.spinner.Tick, commands.StartInstanceCmd(m.ec2Svc, m.actionID))
 				}
 			case "n", "N":
 				m.confirming = false
@@ -81,7 +80,7 @@ func (m ec2Model) Update(msg tea.Msg) (ec2Model, tea.Cmd) {
 		case key.Matches(msg, m.keys.Refresh):
 			m.status = "Refreshing instances..."
 			m.err = nil
-			return m, tea.Batch(m.spinner.Tick, commands.FetchInstancesCmd(m.ec2Svc))
+			return m, tea.Batch(m.parent.spinner.Tick, commands.FetchInstancesCmd(m.ec2Svc))
 		case key.Matches(msg, m.keys.Stop):
 			if m.instanceList.SelectedItem() != nil {
 				selectedItem := m.instanceList.SelectedItem().(ec2InstanceItem)
@@ -116,7 +115,7 @@ func (m ec2Model) Update(msg tea.Msg) (ec2Model, tea.Cmd) {
 				selectedInstance := selectedItem.instance
 				m.status = "Fetching instance details..."
 				m.err = nil
-				return m, tea.Batch(m.spinner.Tick, commands.FetchInstanceDetailsCmd(m.ec2Svc, selectedInstance.InstanceId))
+				return m, tea.Batch(m.parent.spinner.Tick, commands.FetchInstanceDetailsCmd(m.ec2Svc, selectedInstance.InstanceId))
 			}
 		case key.Matches(msg, m.keys.Ssh):
 			if m.instanceList.SelectedItem() != nil {
@@ -133,9 +132,6 @@ func (m ec2Model) Update(msg tea.Msg) (ec2Model, tea.Cmd) {
 				}
 			}
 		}
-	case spinner.TickMsg:
-		m.spinner, cmd = m.spinner.Update(msg)
-		return m, cmd
 	case messages.InstancesFetchedMsg:
 		listItems := make([]list.Item, len(msg))
 		for i, instance := range msg {
@@ -150,7 +146,7 @@ func (m ec2Model) Update(msg tea.Msg) (ec2Model, tea.Cmd) {
 		m.err = nil
 		m.action = ""
 		m.actionID = nil
-		return m, tea.Batch(m.spinner.Tick, commands.FetchInstancesCmd(m.ec2Svc))
+		return m, tea.Batch(m.parent.spinner.Tick, commands.FetchInstancesCmd(m.ec2Svc))
 	case messages.InstanceDetailsMsg:
 		m.detailInstance = msg
 		m.showDetails = true
@@ -165,7 +161,7 @@ func (m ec2Model) Update(msg tea.Msg) (ec2Model, tea.Cmd) {
 			m.status = "SSH session ended."
 			m.err = nil
 		}
-		return m, tea.Batch(m.spinner.Tick, commands.FetchInstancesCmd(m.ec2Svc))
+		return m, tea.Batch(m.parent.spinner.Tick, commands.FetchInstancesCmd(m.ec2Svc))
 	case messages.ErrMsg:
 		m.err = msg
 		m.status = "Error"
@@ -208,12 +204,5 @@ func (m ec2Model) View() string {
 		s = m.instanceList.View()
 	}
 
-	if m.status != "Ready" && m.status != "Error" {
-		s += styles.StatusStyle.Render(fmt.Sprintf("\n%s %s", m.spinner.View(), m.status))
-	} else if m.confirming {
-		s += styles.ConfirmStyle.Render(fmt.Sprintf("\n%s", m.status))
-	} else {
-		s += styles.StatusStyle.Render(fmt.Sprintf("\nStatus: %s", m.status))
-	}
 	return s
 }

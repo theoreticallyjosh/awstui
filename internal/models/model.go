@@ -115,35 +115,36 @@ func NewModel() Model {
 			listkeys.Logs,
 		}
 	}
-
-	ec2Model := ec2Model{
-		ec2Svc:       ec2Svc,
-		instanceList: ec2List,
-		spinner:      s,
-		keys:         listkeys,
-	}
-
-	ecsModel := ecsModel{
-		ecsSvc:            ecsSvc,
-		cloudwatchlogsSvc: cloudwatchlogsSvc,
-		clusterList:       ecsClusterList,
-		serviceList:       ecsServiceList,
-		spinner:           s,
-		keys:              listkeys,
-		state:             ecsStateClusterList,
-	}
-
 	// Create initial model
 	m := Model{
-		ec2Model:    ec2Model,
-		ecsModel:    ecsModel,
 		status:      "Select an option.",
-		spinner:     s,
 		keys:        listkeys,
 		state:       stateMenu,
 		menuChoices: []string{"EC2 Instances", "ECS Clusters"},
 		menuCursor:  0,
+		spinner:     s,
 	}
+
+	ec2Model := ec2Model{
+		parent:       &m,
+		status:       "Loading instances...",
+		ec2Svc:       ec2Svc,
+		instanceList: ec2List,
+		keys:         listkeys,
+	}
+
+	ecsModel := ecsModel{
+		parent:            &m,
+		ecsSvc:            ecsSvc,
+		status:            "Loading clusters...",
+		cloudwatchlogsSvc: cloudwatchlogsSvc,
+		clusterList:       ecsClusterList,
+		serviceList:       ecsServiceList,
+		keys:              listkeys,
+		state:             ecsStateClusterList,
+	}
+	m.ec2Model = ec2Model
+	m.ecsModel = ecsModel
 
 	return m
 
@@ -179,11 +180,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				switch selectedChoice {
 				case "EC2 Instances":
 					m.state = stateEC2
-					m.status = "Loading EC2 instances..."
 					return m, m.ec2Model.Init()
 				case "ECS Clusters":
 					m.state = stateECS
-					m.status = "Loading ECS clusters..."
 					return m, m.ecsModel.Init()
 				}
 			case "q", "ctrl+c":
@@ -255,8 +254,27 @@ func (m Model) View() string {
 
 	case stateEC2:
 		s.WriteString(m.ec2Model.View())
+		var status string
+		if m.ec2Model.status != "Ready" && m.ec2Model.status != "Error" {
+			status += styles.StatusStyle.Render(fmt.Sprintf("\n%s %s", m.spinner.View(), m.ec2Model.status))
+		} else if m.ec2Model.confirming {
+			status += styles.ConfirmStyle.Render(fmt.Sprintf("\n%s", m.ec2Model.status))
+		} else {
+			status += styles.StatusStyle.Render(fmt.Sprintf("\nStatus: %s", m.ec2Model.status))
+		}
+		s.WriteString(status)
+
 	case stateECS:
 		s.WriteString(m.ecsModel.View())
+		var status string
+		if m.ecsModel.status != "Ready" && m.ecsModel.status != "Error" {
+			status += styles.StatusStyle.Render(fmt.Sprintf("\n%s %s", m.spinner.View(), m.ecsModel.status))
+		} else if m.ec2Model.confirming {
+			status += styles.ConfirmStyle.Render(fmt.Sprintf("\n%s", m.ecsModel.status))
+		} else {
+			status += styles.StatusStyle.Render(fmt.Sprintf("\nStatus: %s", m.ecsModel.status))
+		}
+		s.WriteString(status)
 	}
 
 	return styles.AppStyle.Render(s.String())

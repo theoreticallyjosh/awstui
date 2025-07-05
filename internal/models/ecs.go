@@ -13,7 +13,6 @@ import (
 	"github.com/aws/aws-sdk-go/service/ecs"
 	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/bubbles/list"
-	"github.com/charmbracelet/bubbles/spinner"
 	tea "github.com/charmbracelet/bubbletea"
 )
 
@@ -28,13 +27,13 @@ const (
 )
 
 type ecsModel struct {
+	parent                  *Model
 	ecsSvc                  *ecs.ECS
 	cloudwatchlogsSvc       *cloudwatchlogs.CloudWatchLogs
 	clusterList             list.Model
 	serviceList             list.Model
 	status                  string
 	err                     error
-	spinner                 spinner.Model
 	confirming              bool
 	action                  string
 	detailCluster           *ecs.Cluster
@@ -46,7 +45,7 @@ type ecsModel struct {
 }
 
 func (m ecsModel) Init() tea.Cmd {
-	return tea.Batch(m.spinner.Tick, commands.FetchECSClustersCmd(m.ecsSvc))
+	return tea.Batch(m.parent.spinner.Tick, commands.FetchECSClustersCmd(m.ecsSvc))
 }
 
 func (m ecsModel) Update(msg tea.Msg) (ecsModel, tea.Cmd) {
@@ -65,7 +64,7 @@ func (m ecsModel) Update(msg tea.Msg) (ecsModel, tea.Cmd) {
 				m.status = fmt.Sprintf("%sing service %s...", m.action, aws.StringValue(m.ecsServiceActionService.ServiceName))
 				m.err = nil
 				if m.action == "stop" {
-					return m, tea.Batch(m.spinner.Tick, commands.StopECSServiceCmd(m.ecsSvc, aws.StringValue(m.detailCluster.ClusterArn), aws.StringValue(m.ecsServiceActionService.ServiceArn)))
+					return m, tea.Batch(m.parent.spinner.Tick, commands.StopECSServiceCmd(m.ecsSvc, aws.StringValue(m.detailCluster.ClusterArn), aws.StringValue(m.ecsServiceActionService.ServiceArn)))
 				}
 			case "n", "N":
 				m.confirming = false
@@ -85,14 +84,14 @@ func (m ecsModel) Update(msg tea.Msg) (ecsModel, tea.Cmd) {
 			case key.Matches(msg, m.keys.Refresh):
 				m.status = "Refreshing ECS clusters..."
 				m.err = nil
-				return m, tea.Batch(m.spinner.Tick, commands.FetchECSClustersCmd(m.ecsSvc))
+				return m, tea.Batch(m.parent.spinner.Tick, commands.FetchECSClustersCmd(m.ecsSvc))
 			case key.Matches(msg, key.NewBinding(key.WithKeys("enter"), key.WithHelp("enter", "select cluster"))):
 				if m.clusterList.SelectedItem() != nil {
 					selectedItem := m.clusterList.SelectedItem().(ecsClusterItem)
 					m.detailCluster = selectedItem.cluster
 					m.state = ecsStateServiceList
 					m.status = fmt.Sprintf("Loading services for cluster %s...", aws.StringValue(m.detailCluster.ClusterName))
-					return m, tea.Batch(m.spinner.Tick, commands.FetchECSServicesCmd(m.ecsSvc, aws.StringValue(m.detailCluster.ClusterArn)))
+					return m, tea.Batch(m.parent.spinner.Tick, commands.FetchECSServicesCmd(m.ecsSvc, aws.StringValue(m.detailCluster.ClusterArn)))
 				}
 			}
 		case ecsStateServiceList:
@@ -103,7 +102,7 @@ func (m ecsModel) Update(msg tea.Msg) (ecsModel, tea.Cmd) {
 			case key.Matches(msg, m.keys.Refresh):
 				m.status = fmt.Sprintf("Refreshing services for cluster %s...", aws.StringValue(m.detailCluster.ClusterName))
 				m.err = nil
-				return m, tea.Batch(m.spinner.Tick, commands.FetchECSServicesCmd(m.ecsSvc, aws.StringValue(m.detailCluster.ClusterArn)))
+				return m, tea.Batch(m.parent.spinner.Tick, commands.FetchECSServicesCmd(m.ecsSvc, aws.StringValue(m.detailCluster.ClusterArn)))
 			case key.Matches(msg, m.keys.Details):
 				if m.serviceList.SelectedItem() != nil {
 					selectedItem := m.serviceList.SelectedItem().(ecsServiceItem)
@@ -133,7 +132,7 @@ func (m ecsModel) Update(msg tea.Msg) (ecsModel, tea.Cmd) {
 					m.detailService = selectedItem.service
 					m.state = ecsStateServiceLogs
 					m.status = fmt.Sprintf("Fetching logs for service %s...", aws.StringValue(selectedItem.service.ServiceName))
-					return m, tea.Batch(m.spinner.Tick, commands.FetchECSServiceLogsCmd(m.ecsSvc, m.cloudwatchlogsSvc, selectedItem.service))
+					return m, tea.Batch(m.parent.spinner.Tick, commands.FetchECSServiceLogsCmd(m.ecsSvc, m.cloudwatchlogsSvc, selectedItem.service))
 				}
 			}
 		case ecsStateServiceDetails, ecsStateServiceLogs:
@@ -169,10 +168,6 @@ func (m ecsModel) Update(msg tea.Msg) (ecsModel, tea.Cmd) {
 				return m, nil
 			}
 		}
-
-	case spinner.TickMsg:
-		m.spinner, cmd = m.spinner.Update(msg)
-		return m, cmd
 	case messages.EcsClustersFetchedMsg:
 		listItems := make([]list.Item, len(msg))
 		for i, cluster := range msg {
@@ -203,7 +198,7 @@ func (m ecsModel) Update(msg tea.Msg) (ecsModel, tea.Cmd) {
 		m.action = ""
 		m.ecsServiceActionService = nil
 		m.confirming = false
-		return m, tea.Batch(m.spinner.Tick, commands.FetchECSServicesCmd(m.ecsSvc, aws.StringValue(m.detailCluster.ClusterArn)))
+		return m, tea.Batch(m.parent.spinner.Tick, commands.FetchECSServicesCmd(m.ecsSvc, aws.StringValue(m.detailCluster.ClusterArn)))
 	case messages.EcsServiceLogsFetchedMsg:
 		m.serviceLogs = string(msg)
 		m.status = "Ready"
@@ -272,14 +267,6 @@ func (m ecsModel) View() string {
 			s += "\n" + styles.DetailStyle.Render(m.serviceLogs)
 		}
 		s += styles.StatusStyle.Render("\nPress 'esc' or 'backspace' to go back.")
-	}
-
-	if m.status != "Ready" && m.status != "Error" {
-		s += styles.StatusStyle.Render(fmt.Sprintf("\n%s %s", m.spinner.View(), m.status))
-	} else if m.confirming {
-		s += styles.ConfirmStyle.Render(fmt.Sprintf("\n%s", m.status))
-	} else {
-		s += styles.StatusStyle.Render(fmt.Sprintf("\nStatus: %s", m.status))
 	}
 
 	return s
