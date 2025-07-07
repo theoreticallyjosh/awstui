@@ -2,6 +2,8 @@
 
 A terminal user interface (TUI) for interacting with AWS services, built with Go and Bubble Tea.
 
+**DISCLAIMER**: This was my first attempt at "vibe coding". I wanted to see if it was as good/bad people are claiming it to be. I made some manually tweaks a well.
+
 ## Features
 
 - Navigate and manage AWS resources (e.g., EC2, ECS).
@@ -26,7 +28,7 @@ awstui
 
 ## Screenshots
 
-*(Screenshots will be added here to showcase the TUI in action.)*
+_(Screenshots will be added here to showcase the TUI in action.)_
 
 ## Contributing
 
