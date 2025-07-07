@@ -100,7 +100,7 @@ func NewModel() Model {
 
 	// Initialize the ECS service list model
 	ecsServiceList := list.New([]list.Item{}, ItemDelegate{}, 0, 20)
-	ecsServiceList.Title = "ECS Services"
+	ecsServiceList.Title = ""
 	ecsServiceList.SetShowStatusBar(false)
 	ecsServiceList.SetFilteringEnabled(true)
 	ecsServiceList.Styles.Title = styles.SubHeaderStyle
