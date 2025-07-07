@@ -162,6 +162,22 @@ func StopECSServiceCmd(svc *ecs.ECS, clusterArn, serviceArn string) tea.Cmd {
 	}
 }
 
+// ForceDeployECSServiceCmd forces a new deployment of an ECS service.
+func ForceDeployECSServiceCmd(svc *ecs.ECS, clusterArn, serviceArn string) tea.Cmd {
+	return func() tea.Msg {
+		_, err := svc.UpdateService(&ecs.UpdateServiceInput{
+			Cluster:            aws.String(clusterArn),
+			Service:            aws.String(serviceArn),
+			ForceNewDeployment: aws.Bool(true),
+		})
+		if err != nil {
+			return messages.ErrMsg(fmt.Errorf("failed to force deploy ECS service %s: %w", serviceArn, err))
+		}
+		time.Sleep(2 * time.Second)
+		return messages.EcsServiceActionMsg("force-deployed")
+	}
+}
+
 // FetchECSServiceLogsCmd fetches logs for a specific ECS service from CloudWatch Logs.
 func FetchECSServiceLogsCmd(ecsSvc *ecs.ECS, cloudwatchlogsSvc *cloudwatchlogs.CloudWatchLogs, service *ecs.Service) tea.Cmd {
 	return func() tea.Msg {

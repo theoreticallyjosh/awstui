@@ -99,6 +99,8 @@ func (m ecsModel) Update(msg tea.Msg) (ecsModel, tea.Cmd) {
 				m.err = nil
 				if m.action == "stop" {
 					return m, tea.Batch(m.parent.spinner.Tick, commands.StopECSServiceCmd(m.ecsSvc, aws.StringValue(m.detailCluster.ClusterArn), aws.StringValue(m.ecsServiceActionService.ServiceArn)))
+				} else if m.action == "force-deploy" {
+					return m, tea.Batch(m.parent.spinner.Tick, commands.ForceDeployECSServiceCmd(m.ecsSvc, aws.StringValue(m.detailCluster.ClusterArn), aws.StringValue(m.ecsServiceActionService.ServiceArn)))
 				}
 			case "n", "N":
 				m.confirming = false
@@ -159,6 +161,17 @@ func (m ecsModel) Update(msg tea.Msg) (ecsModel, tea.Cmd) {
 					} else {
 						m.status = fmt.Sprintf("Service %s is already stopped (Desired: 0).", aws.StringValue(selectedService.ServiceName))
 					}
+				}
+			case key.Matches(msg, m.keys.ForceDeploy):
+				if m.serviceList.SelectedItem() != nil {
+					selectedItem := m.serviceList.SelectedItem().(ecsServiceItem)
+					selectedService := selectedItem.service
+					m.confirming = true
+					m.action = "force-deploy"
+					m.ecsServiceActionService = selectedService
+					m.state = ecsStateServiceConfirmAction
+					m.status = fmt.Sprintf("Confirm force deployment of service %s? (y/N)",
+						aws.StringValue(selectedService.ServiceName))
 				}
 			case key.Matches(msg, m.keys.Logs):
 				if m.serviceList.SelectedItem() != nil {
@@ -267,7 +280,7 @@ func (m ecsModel) View() string {
 			s = styles.StatusStyle.Render("No service details available.\n")
 		}
 	case ecsStateServiceConfirmAction:
-		s = styles.ConfirmStyle.Render(fmt.Sprintf("\n%s", m.status))
+		// s = styles.ConfirmStyle.Render(fmt.Sprintf("\n%s", m.status))
 	case ecsStateServiceLogs:
 		s = styles.SubHeaderStyle.Render(fmt.Sprintf("Logs for Service: %s", aws.StringValue(m.detailService.ServiceName))) + "\n"
 		if m.serviceLogs == "" && m.status == "Ready" {
