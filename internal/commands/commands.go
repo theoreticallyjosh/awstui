@@ -2,6 +2,7 @@ package commands
 
 import (
 	"awstui/internal/messages"
+	"encoding/base64"
 	"fmt"
 	"os/exec"
 	"strings"
@@ -10,9 +11,90 @@ import (
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/service/cloudwatchlogs"
 	"github.com/aws/aws-sdk-go/service/ec2"
+	"github.com/aws/aws-sdk-go/service/ecr"
 	"github.com/aws/aws-sdk-go/service/ecs"
 	tea "github.com/charmbracelet/bubbletea"
 )
+
+// FetchECRRepositoriesCmd fetches ECR repositories from AWS.
+func FetchECRRepositoriesCmd(svc *ecr.ECR) tea.Cmd {
+	return func() tea.Msg {
+		result, err := svc.DescribeRepositories(&ecr.DescribeRepositoriesInput{})
+		if err != nil {
+			return messages.ErrMsg(fmt.Errorf("failed to describe ECR repositories: %w", err))
+		}
+		return messages.EcrRepositoriesFetchedMsg(result.Repositories)
+	}
+}
+
+// FetchECRImagesCmd fetches ECR images from a specific repository.
+func FetchECRImagesCmd(svc *ecr.ECR, repositoryName *string) tea.Cmd {
+	return func() tea.Msg {
+		result, err := svc.DescribeImages(&ecr.DescribeImagesInput{
+			RepositoryName: repositoryName,
+		})
+		if err != nil {
+			return messages.ErrMsg(fmt.Errorf("failed to describe ECR images: %w", err))
+		}
+		return messages.EcrImagesFetchedMsg(result.ImageDetails)
+	}
+}
+
+// PullEcrImageCmd pulls a docker image from ECR.
+func PullEcrImageCmd(svc *ecr.ECR, repositoryUri string, imageTag string) tea.Cmd {
+	return func() tea.Msg {
+		// Get login token
+		result, err := svc.GetAuthorizationToken(&ecr.GetAuthorizationTokenInput{})
+		if err != nil {
+			return messages.ErrMsg(fmt.Errorf("failed to get ECR authorization token: %w", err))
+		}
+		// Decode token
+		token, err := base64.StdEncoding.DecodeString(aws.StringValue(result.AuthorizationData[0].AuthorizationToken))
+		if err != nil {
+			return messages.ErrMsg(fmt.Errorf("failed to decode ECR authorization token: %w", err))
+		}
+		// Login to ECR
+		loginCmd := exec.Command("docker", "login", "-u", "AWS", "-p", string(token)[4:], repositoryUri)
+		if err := loginCmd.Run(); err != nil {
+			return messages.ErrMsg(fmt.Errorf("failed to login to ECR: %w", err))
+		}
+		// Pull image
+		imageName := fmt.Sprintf("%s:%s", repositoryUri, imageTag)
+		pullCmd := exec.Command("docker", "pull", imageName)
+		if err := pullCmd.Run(); err != nil {
+			return messages.ErrMsg(fmt.Errorf("failed to pull docker image: %w", err))
+		}
+		return messages.EcrImageActionMsg("pulled")
+	}
+}
+
+// PushEcrImageCmd pushes a docker image to ECR.
+func PushEcrImageCmd(svc *ecr.ECR, repositoryUri string, imageTag string) tea.Cmd {
+	return func() tea.Msg {
+		// Get login token
+		result, err := svc.GetAuthorizationToken(&ecr.GetAuthorizationTokenInput{})
+		if err != nil {
+			return messages.ErrMsg(fmt.Errorf("failed to get ECR authorization token: %w", err))
+		}
+		// Decode token
+		token, err := base64.StdEncoding.DecodeString(aws.StringValue(result.AuthorizationData[0].AuthorizationToken))
+		if err != nil {
+			return messages.ErrMsg(fmt.Errorf("failed to decode ECR authorization token: %w", err))
+		}
+		// Login to ECR
+		loginCmd := exec.Command("docker", "login", "-u", "AWS", "-p", string(token)[4:], repositoryUri)
+		if err := loginCmd.Run(); err != nil {
+			return messages.ErrMsg(fmt.Errorf("failed to login to ECR: %w", err))
+		}
+		// Push image
+		imageName := fmt.Sprintf("%s:%s", repositoryUri, imageTag)
+		pushCmd := exec.Command("docker", "push", imageName)
+		if err := pushCmd.Run(); err != nil {
+			return messages.ErrMsg(fmt.Errorf("failed to push docker image: %w", err))
+		}
+		return messages.EcrImageActionMsg("pushed")
+	}
+}
 
 // FetchInstancesCmd fetches EC2 instances from AWS.
 func FetchInstancesCmd(svc *ec2.EC2) tea.Cmd {
@@ -21,7 +103,6 @@ func FetchInstancesCmd(svc *ec2.EC2) tea.Cmd {
 		if err != nil {
 			return messages.ErrMsg(fmt.Errorf("failed to describe instances: %w", err))
 		}
-
 		var instances []*ec2.Instance
 		for _, reservation := range result.Reservations {
 			for _, instance := range reservation.Instances {

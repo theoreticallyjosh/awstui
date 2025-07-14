@@ -28,3 +28,15 @@ func GetSecurityGroupNames(sgs []*ec2.SecurityGroupIdentifier) string {
 	}
 	return strings.Join(names, ", ")
 }
+
+func ArrayToCSV(array []*string) string {
+	ret := ""
+	for i, v := range array {
+		ret += aws.StringValue(v)
+		if i < len(array)-1 {
+			ret += ", "
+
+		}
+	}
+	return ret
+}

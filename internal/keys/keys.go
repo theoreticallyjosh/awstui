@@ -10,6 +10,8 @@ type ListKeyMap struct {
 	Refresh     key.Binding
 	Logs        key.Binding
 	ForceDeploy key.Binding
+	Pull        key.Binding
+	Push        key.Binding
 }
 
 func NewListKeyMap() *ListKeyMap {
@@ -41,6 +43,14 @@ func NewListKeyMap() *ListKeyMap {
 		ForceDeploy: key.NewBinding(
 			key.WithKeys("f"),
 			key.WithHelp("f", "force deploy"),
+		),
+		Pull: key.NewBinding(
+			key.WithKeys("p"),
+			key.WithHelp("p", "pull"),
+		),
+		Push: key.NewBinding(
+			key.WithKeys("u"),
+			key.WithHelp("u", "push"),
 		),
 	}
 }

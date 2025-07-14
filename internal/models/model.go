@@ -11,6 +11,7 @@ import (
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/cloudwatchlogs"
 	"github.com/aws/aws-sdk-go/service/ec2"
+	"github.com/aws/aws-sdk-go/service/ecr"
 	"github.com/aws/aws-sdk-go/service/ecs"
 	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/bubbles/list"
@@ -27,12 +28,14 @@ const (
 	stateMenu appState = iota
 	stateEC2
 	stateECS
+	stateECR
 )
 
 // Model represents the state of our TUI application.
 type Model struct {
 	ec2Model    ec2Model
 	ecsModel    ecsModel
+	ecrModel    ecrModel
 	spinner     spinner.Model
 	status      string
 	err         error
@@ -54,6 +57,7 @@ func NewModel() Model {
 	// Create AWS service clients
 	ec2Svc := ec2.New(sess)
 	ecsSvc := ecs.New(sess)
+	ecrSvc := ecr.New(sess)
 	cloudwatchlogsSvc := cloudwatchlogs.New(sess)
 
 	// Initialize the spinner model
@@ -117,6 +121,40 @@ func NewModel() Model {
 		}
 	}
 
+	// Initialize the ECR repository list model
+	ecrRepositoryList := list.New([]list.Item{}, ItemDelegate{}, 0, 20)
+	ecrRepositoryList.Title = "ECR Repositories"
+	ecrRepositoryList.SetShowStatusBar(false)
+	ecrRepositoryList.SetFilteringEnabled(true)
+	ecrRepositoryList.Styles.Title = styles.SubHeaderStyle
+	ecrRepositoryList.Styles.FilterPrompt = lipgloss.NewStyle().Foreground(styles.TokyoNightGreen)
+	ecrRepositoryList.Styles.FilterCursor = lipgloss.NewStyle().Foreground(styles.TokyoNightGreen)
+	ecrRepositoryList.Styles.NoItems = styles.StatusStyle.UnsetPaddingLeft()
+	ecrRepositoryList.SetStatusBarItemName("repository", "repositories")
+	ecrRepositoryList.AdditionalFullHelpKeys = func() []key.Binding {
+		return []key.Binding{
+			listkeys.Refresh,
+		}
+	}
+
+	// Initialize the ECR repository list model
+	ecrImageList := list.New([]list.Item{}, ItemDelegate{}, 0, 20)
+	ecrImageList.Title = "ECR Images"
+	ecrImageList.SetShowStatusBar(false)
+	ecrImageList.SetFilteringEnabled(true)
+	ecrImageList.Styles.Title = styles.SubHeaderStyle
+	ecrImageList.Styles.FilterPrompt = lipgloss.NewStyle().Foreground(styles.TokyoNightGreen)
+	ecrImageList.Styles.FilterCursor = lipgloss.NewStyle().Foreground(styles.TokyoNightGreen)
+	ecrImageList.Styles.NoItems = styles.StatusStyle.UnsetPaddingLeft()
+	ecrImageList.SetStatusBarItemName("image", "images")
+	ecrImageList.AdditionalFullHelpKeys = func() []key.Binding {
+		return []key.Binding{
+			listkeys.Refresh,
+			listkeys.Pull,
+			listkeys.Push,
+		}
+	}
+
 	pager := paginator.New()
 	pager.Type = paginator.Dots
 	pager.ActiveDot = lipgloss.NewStyle().Foreground(lipgloss.AdaptiveColor{Light: "235", Dark: "252"}).Render("•")
@@ -127,7 +165,7 @@ func NewModel() Model {
 		status:      "Select an option.",
 		keys:        listkeys,
 		state:       stateMenu,
-		menuChoices: []string{"EC2 Instances", "ECS Clusters"},
+		menuChoices: []string{"EC2 Instances", "ECS Clusters", "ECR Repositories"},
 		menuCursor:  0,
 		spinner:     s,
 	}
@@ -151,11 +189,22 @@ func NewModel() Model {
 		keys:              listkeys,
 		state:             ecsStateClusterList,
 	}
+
+	ecrModel := ecrModel{
+		parent:         &m,
+		ecrSvc:         ecrSvc,
+		status:         "Loading repositories...",
+		repositoryList: ecrRepositoryList,
+		imageList:      ecrImageList,
+		keys:           listkeys,
+		state:          ecrStateRepositoryList,
+	}
+
 	m.ec2Model = ec2Model
 	m.ecsModel = ecsModel
+	m.ecrModel = ecrModel
 
 	return m
-
 }
 
 // Init initializes the model and starts fetching data based on the initial state.
@@ -170,6 +219,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.ec2Model, cmd = m.ec2Model.Update(msg)
 		m.ecsModel, cmd = m.ecsModel.Update(msg)
+		m.ecrModel, cmd = m.ecrModel.Update(msg)
 		return m, cmd
 	case tea.KeyMsg:
 		switch m.state {
@@ -192,12 +242,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				case "ECS Clusters":
 					m.state = stateECS
 					return m, m.ecsModel.Init()
+				case "ECR Repositories":
+					m.state = stateECR
+					return m, m.ecrModel.Init()
 				}
 			case "q", "ctrl+c":
 				return m, tea.Quit
 			}
 			return m, nil
-		case stateEC2, stateECS:
+		case stateEC2, stateECS, stateECR:
 			if key.Matches(msg, key.NewBinding(key.WithKeys("backspace", "esc"), key.WithHelp("backspace/esc", "back"))) {
 				if m.state == stateEC2 {
 					if m.ec2Model.showDetails {
@@ -208,6 +261,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				if m.state == stateECS {
 					if m.ecsModel.state != ecsStateClusterList {
 						m.ecsModel, cmd = m.ecsModel.Update(msg)
+						return m, cmd
+					}
+				}
+				if m.state == stateECR {
+					if m.ecrModel.state != ecrStateRepositoryList {
+						m.ecrModel, cmd = m.ecrModel.Update(msg)
 						return m, cmd
 					}
 				}
@@ -231,6 +290,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.ec2Model, cmd = m.ec2Model.Update(msg)
 	case stateECS:
 		m.ecsModel, cmd = m.ecsModel.Update(msg)
+	case stateECR:
+		m.ecrModel, cmd = m.ecrModel.Update(msg)
 	}
 
 	return m, cmd
@@ -281,6 +342,15 @@ func (m Model) View() string {
 			status += styles.ConfirmStyle.Render(fmt.Sprintf("\n%s", m.ecsModel.status))
 		} else {
 			status += styles.StatusStyle.Render(fmt.Sprintf("\nStatus: %s", m.ecsModel.status))
+		}
+		s.WriteString(status)
+	case stateECR:
+		s.WriteString(m.ecrModel.View())
+		var status string
+		if m.ecrModel.status != "Ready" && m.ecrModel.status != "Error" {
+			status += styles.StatusStyle.Render(fmt.Sprintf("\n%s %s", m.spinner.View(), m.ecrModel.status))
+		} else {
+			status += styles.StatusStyle.Render(fmt.Sprintf("\nStatus: %s", m.ecrModel.status))
 		}
 		s.WriteString(status)
 	}

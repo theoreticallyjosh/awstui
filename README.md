@@ -6,7 +6,7 @@ A terminal user interface (TUI) for interacting with AWS services, built with Go
 
 ## Features
 
-- Navigate and manage AWS resources (e.g., EC2, ECS).
+- Navigate and manage AWS resources (e.g., EC2, ECS, ECR).
 - Interactive and responsive TUI experience.
 - Lightweight and fast.
 
@@ -17,6 +17,10 @@ To install `awstui`, make sure you have Go installed (version 1.16 or higher is 
 ```bash
 go install github.com/jhagofsk/awstui@latest
 ```
+
+## Configuration
+
+To use awstui, you will need to configure your AWS credentials. You can follow the same steps required of [aws-cli](https://github.com/aws/aws-cli#configuration).
 
 ## Usage
 
