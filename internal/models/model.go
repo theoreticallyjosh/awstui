@@ -41,8 +41,27 @@ type Model struct {
 	err         error
 	state       appState
 	menuCursor  int
-	menuChoices []string
+	menuChoices list.Model
 	keys        *keys.ListKeyMap
+	width       int
+	height      int
+	statusStyle lipgloss.Style
+}
+
+func setListStyle(l *list.Model) {
+	st := list.DefaultStyles()
+
+	st.Title = styles.SubHeaderStyle
+	st.FilterPrompt = lipgloss.NewStyle().Foreground(styles.TokyoNightGreen)
+	st.FilterCursor = lipgloss.NewStyle().Foreground(styles.TokyoNightGreen)
+	st.NoItems = styles.StatusStyle.UnsetPaddingLeft()
+	st.StatusBar = styles.StatusStyle
+	st.NoItems = styles.StatusStyle.UnsetPaddingLeft()
+	l.Help.Styles.ShortDesc = styles.HelpStyle
+	l.Help.Styles.FullDesc = styles.HelpStyle
+	l.Help.Styles.ShortKey = styles.HelpStyle
+	l.Help.Styles.FullKey = styles.HelpStyle
+	l.Styles = st
 }
 
 func NewModel() Model {
@@ -63,18 +82,35 @@ func NewModel() Model {
 	// Initialize the spinner model
 	s := spinner.New()
 	s.Spinner = spinner.Dot
-	s.Style = lipgloss.NewStyle().Foreground(styles.TokyoNightCyan)
+	s.Style = styles.StatusStyle
 
 	var listkeys = keys.NewListKeyMap()
+
+	items := []list.Item{
+		resourceItem{title: "EC2", desc: "Elastic Compute Cloud"},
+		resourceItem{title: "ECS", desc: "Elastic Container Service"},
+		resourceItem{title: "ECR", desc: "Elastic Container Registry"},
+	}
+
+	mainList := list.New(items, ItemDelegate{}, 0, 6)
+	mainList.Title = "Resources"
+	mainList.SetShowStatusBar(false)
+	mainList.SetFilteringEnabled(false)
+	setListStyle(&mainList)
+	mainList.AdditionalShortHelpKeys = func() []key.Binding {
+		return []key.Binding{
+			listkeys.Choose,
+		}
+	}
+	mainList.AdditionalFullHelpKeys = mainList.AdditionalShortHelpKeys
+
 	// Initialize the EC2 list model
 	ec2List := list.New([]list.Item{}, ItemDelegate{}, 0, 20)
 	ec2List.Title = "EC2 Instances"
 	ec2List.SetShowStatusBar(false)
 	ec2List.SetFilteringEnabled(true)
-	ec2List.Styles.Title = styles.SubHeaderStyle
-	ec2List.Styles.FilterPrompt = lipgloss.NewStyle().Foreground(styles.TokyoNightGreen)
-	ec2List.Styles.FilterCursor = lipgloss.NewStyle().Foreground(styles.TokyoNightGreen)
-	ec2List.Styles.NoItems = styles.StatusStyle.UnsetPaddingLeft()
+	setListStyle(&ec2List)
+
 	ec2List.SetStatusBarItemName("instance", "instances")
 	ec2List.AdditionalFullHelpKeys = func() []key.Binding {
 		return []key.Binding{
@@ -85,32 +121,29 @@ func NewModel() Model {
 			listkeys.Refresh,
 		}
 	}
+	ec2List.AdditionalShortHelpKeys = ec2List.AdditionalFullHelpKeys
 
 	// Initialize the ECS cluster list model
 	ecsClusterList := list.New([]list.Item{}, ItemDelegate{}, 0, 20)
 	ecsClusterList.Title = "ECS Clusters"
 	ecsClusterList.SetShowStatusBar(false)
 	ecsClusterList.SetFilteringEnabled(true)
-	ecsClusterList.Styles.Title = styles.SubHeaderStyle
-	ecsClusterList.Styles.FilterPrompt = lipgloss.NewStyle().Foreground(styles.TokyoNightGreen)
-	ecsClusterList.Styles.FilterCursor = lipgloss.NewStyle().Foreground(styles.TokyoNightGreen)
-	ecsClusterList.Styles.NoItems = styles.StatusStyle.UnsetPaddingLeft()
+	setListStyle(&ecsClusterList)
 	ecsClusterList.SetStatusBarItemName("cluster", "clusters")
 	ecsClusterList.AdditionalFullHelpKeys = func() []key.Binding {
 		return []key.Binding{
+			listkeys.Choose,
 			listkeys.Refresh,
 		}
 	}
+	ecsClusterList.AdditionalShortHelpKeys = ecsClusterList.AdditionalFullHelpKeys
 
 	// Initialize the ECS service list model
 	ecsServiceList := list.New([]list.Item{}, ItemDelegate{}, 0, 20)
 	ecsServiceList.Title = ""
 	ecsServiceList.SetShowStatusBar(false)
 	ecsServiceList.SetFilteringEnabled(true)
-	ecsServiceList.Styles.Title = styles.SubHeaderStyle
-	ecsServiceList.Styles.FilterPrompt = lipgloss.NewStyle().Foreground(styles.TokyoNightGreen)
-	ecsServiceList.Styles.FilterCursor = lipgloss.NewStyle().Foreground(styles.TokyoNightGreen)
-	ecsServiceList.Styles.NoItems = styles.StatusStyle.UnsetPaddingLeft()
+	setListStyle(&ecsServiceList)
 	ecsServiceList.SetStatusBarItemName("service", "services")
 	ecsServiceList.AdditionalFullHelpKeys = func() []key.Binding {
 		return []key.Binding{
@@ -120,33 +153,29 @@ func NewModel() Model {
 			listkeys.Logs,
 		}
 	}
+	ecsServiceList.AdditionalShortHelpKeys = ecsServiceList.AdditionalFullHelpKeys
 
 	// Initialize the ECR repository list model
 	ecrRepositoryList := list.New([]list.Item{}, ItemDelegate{}, 0, 20)
 	ecrRepositoryList.Title = "ECR Repositories"
 	ecrRepositoryList.SetShowStatusBar(false)
 	ecrRepositoryList.SetFilteringEnabled(true)
-	ecrRepositoryList.Styles.Title = styles.SubHeaderStyle
-	ecrRepositoryList.Styles.FilterPrompt = lipgloss.NewStyle().Foreground(styles.TokyoNightGreen)
-	ecrRepositoryList.Styles.FilterCursor = lipgloss.NewStyle().Foreground(styles.TokyoNightGreen)
-	ecrRepositoryList.Styles.NoItems = styles.StatusStyle.UnsetPaddingLeft()
+	setListStyle(&ecrRepositoryList)
 	ecrRepositoryList.SetStatusBarItemName("repository", "repositories")
 	ecrRepositoryList.AdditionalFullHelpKeys = func() []key.Binding {
 		return []key.Binding{
+			listkeys.Choose,
 			listkeys.Refresh,
 		}
 	}
+	ecrRepositoryList.AdditionalShortHelpKeys = ecrRepositoryList.AdditionalFullHelpKeys
 
 	// Initialize the ECR repository list model
 	ecrImageList := list.New([]list.Item{}, ItemDelegate{}, 0, 20)
-	ecrImageList.Title = "ECR Images"
+	ecrImageList.Title = ""
 	ecrImageList.SetShowStatusBar(false)
 	ecrImageList.SetFilteringEnabled(true)
-	ecrImageList.Styles.Title = styles.SubHeaderStyle
-	ecrImageList.Styles.FilterPrompt = lipgloss.NewStyle().Foreground(styles.TokyoNightGreen)
-	ecrImageList.Styles.FilterCursor = lipgloss.NewStyle().Foreground(styles.TokyoNightGreen)
-	ecrImageList.Styles.NoItems = styles.StatusStyle.UnsetPaddingLeft()
-	ecrImageList.SetStatusBarItemName("image", "images")
+	setListStyle(&ecrImageList)
 	ecrImageList.AdditionalFullHelpKeys = func() []key.Binding {
 		return []key.Binding{
 			listkeys.Refresh,
@@ -154,20 +183,22 @@ func NewModel() Model {
 			listkeys.Push,
 		}
 	}
+	ecrImageList.AdditionalShortHelpKeys = ecrImageList.AdditionalFullHelpKeys
 
 	pager := paginator.New()
 	pager.Type = paginator.Dots
-	pager.ActiveDot = lipgloss.NewStyle().Foreground(lipgloss.AdaptiveColor{Light: "235", Dark: "252"}).Render("•")
-	pager.InactiveDot = lipgloss.NewStyle().Foreground(lipgloss.AdaptiveColor{Light: "250", Dark: "238"}).Render("•")
+	pager.ActiveDot = styles.ActivePager.Render("•")
+	pager.InactiveDot = styles.InactivePager.Render("•")
 
 	// Create initial model
 	m := Model{
 		status:      "Select an option.",
 		keys:        listkeys,
 		state:       stateMenu,
-		menuChoices: []string{"EC2 Instances", "ECS Clusters", "ECR Repositories"},
+		menuChoices: mainList,
 		menuCursor:  0,
 		spinner:     s,
+		statusStyle: styles.StatusStyle,
 	}
 
 	ec2Model := ec2Model{
@@ -217,39 +248,36 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var cmd tea.Cmd
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
+		h, v := styles.AppStyle.GetFrameSize()
+		m.width = msg.Width - 3*h
+		m.height = msg.Height - 2*v
 		m.ec2Model, cmd = m.ec2Model.Update(msg)
 		m.ecsModel, cmd = m.ecsModel.Update(msg)
 		m.ecrModel, cmd = m.ecrModel.Update(msg)
+		m.menuChoices.SetSize(m.width, m.height)
+		// m.menuChoices, cmd = m.menuChoices.Update(msg)
 		return m, cmd
 	case tea.KeyMsg:
 		switch m.state {
 		case stateMenu:
-			switch msg.String() {
-			case "up", "k":
-				if m.menuCursor > 0 {
-					m.menuCursor--
-				}
-			case "down", "j":
-				if m.menuCursor < len(m.menuChoices)-1 {
-					m.menuCursor++
-				}
-			case "enter":
-				selectedChoice := m.menuChoices[m.menuCursor]
+			switch {
+			case key.Matches(msg, m.keys.Choose):
+				selectedChoice := m.menuChoices.SelectedItem().FilterValue()
 				switch selectedChoice {
-				case "EC2 Instances":
+				case "EC2":
 					m.state = stateEC2
 					return m, m.ec2Model.Init()
-				case "ECS Clusters":
+				case "ECS":
 					m.state = stateECS
 					return m, m.ecsModel.Init()
-				case "ECR Repositories":
+				case "ECR":
 					m.state = stateECR
 					return m, m.ecrModel.Init()
 				}
-			case "q", "ctrl+c":
-				return m, tea.Quit
 			}
-			return m, nil
+			m.menuChoices, cmd = m.menuChoices.Update(msg)
+
+			return m, cmd
 		case stateEC2, stateECS, stateECR:
 			if key.Matches(msg, key.NewBinding(key.WithKeys("backspace", "esc"), key.WithHelp("backspace/esc", "back"))) {
 				if m.state == stateEC2 {
@@ -292,6 +320,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.ecsModel, cmd = m.ecsModel.Update(msg)
 	case stateECR:
 		m.ecrModel, cmd = m.ecrModel.Update(msg)
+	case stateMenu:
+		m.menuChoices, cmd = m.menuChoices.Update(msg)
 	}
 
 	return m, cmd
@@ -301,59 +331,58 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 func (m Model) View() string {
 	var s strings.Builder
 
-	s.WriteString(styles.HeaderStyle.Render("AWS Resource Manager") + "\n")
+	s.WriteString(styles.HeaderStyle.Render("AWS Resource Manager") + " > ")
 
 	if m.err != nil {
 		s.WriteString(styles.ErrorStyle.Render(fmt.Sprintf("Error: %v", m.err)) + "\n")
 	}
-
+	var status, spinner string
 	switch m.state {
 	case stateMenu:
-		s.WriteString("\nSelect a resource type:\n\n")
-		for i, choice := range m.menuChoices {
-			cursor := ""
-			if m.menuCursor == i {
-				cursor = ""
-				s.WriteString(fmt.Sprintf("%s %s\n", cursor, styles.SelectedItemStyle.Render(choice)))
-			} else {
-				s.WriteString(fmt.Sprintf("%s %s\n", cursor, styles.MenuItemStyle.Render(choice)))
-			}
-		}
-		s.WriteString(styles.StatusStyle.Render("\n(Press 'q' or 'ctrl+c' to quit)") + "\n")
-
+		s.WriteString(m.menuChoices.View())
 	case stateEC2:
 		s.WriteString(m.ec2Model.View())
-		var status string
 		if m.ec2Model.status != "Ready" && m.ec2Model.status != "Error" {
-			status += styles.StatusStyle.Render(fmt.Sprintf("\n%s %s", m.spinner.View(), m.ec2Model.status))
+			status = m.ec2Model.status
+			spinner = m.spinner.View()
 		} else if m.ec2Model.confirming {
-			status += styles.ConfirmStyle.Render(fmt.Sprintf("\n%s", m.ec2Model.status))
+			status = m.ec2Model.status
 		} else {
-			status += styles.StatusStyle.Render(fmt.Sprintf("\nStatus: %s", m.ec2Model.status))
+			status += fmt.Sprintf("Status: %s", m.ec2Model.status)
 		}
-		s.WriteString(status)
 
 	case stateECS:
 		s.WriteString(m.ecsModel.View())
-		var status string
 		if m.ecsModel.status != "Ready" && m.ecsModel.status != "Error" {
-			status += styles.StatusStyle.Render(fmt.Sprintf("\n%s %s", m.spinner.View(), m.ecsModel.status))
+			status = m.ecsModel.status
+			spinner = m.spinner.View()
 		} else if m.ec2Model.confirming {
-			status += styles.ConfirmStyle.Render(fmt.Sprintf("\n%s", m.ecsModel.status))
+			status = fmt.Sprintf("%s", m.ecsModel.status)
 		} else {
-			status += styles.StatusStyle.Render(fmt.Sprintf("\nStatus: %s", m.ecsModel.status))
+			status = fmt.Sprintf("Status: %s", m.ecsModel.status)
 		}
-		s.WriteString(status)
 	case stateECR:
 		s.WriteString(m.ecrModel.View())
 		var status string
 		if m.ecrModel.status != "Ready" && m.ecrModel.status != "Error" {
-			status += styles.StatusStyle.Render(fmt.Sprintf("\n%s %s", m.spinner.View(), m.ecrModel.status))
+			status += m.ecrModel.status
+			spinner = m.spinner.View()
 		} else {
-			status += styles.StatusStyle.Render(fmt.Sprintf("\nStatus: %s", m.ecrModel.status))
+			status += fmt.Sprintf("Status: %s", m.ecrModel.status)
 		}
-		s.WriteString(status)
 	}
+
+	remainingHeight := m.height - lipgloss.Height(s.String())
+	for range remainingHeight {
+		s.WriteString("\n")
+	}
+
+	st := m.statusStyle.Render(spinner) + m.statusStyle.Render(status)
+
+	remainingWidth := m.width - lipgloss.Width(st)
+	padding := m.statusStyle.Width(remainingWidth).Render("")
+
+	s.WriteString("\n" + st + padding)
 
 	return styles.AppStyle.Render(s.String())
 }

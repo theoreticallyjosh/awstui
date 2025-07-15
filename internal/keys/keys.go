@@ -12,6 +12,7 @@ type ListKeyMap struct {
 	ForceDeploy key.Binding
 	Pull        key.Binding
 	Push        key.Binding
+	Choose      key.Binding
 }
 
 func NewListKeyMap() *ListKeyMap {
@@ -51,6 +52,10 @@ func NewListKeyMap() *ListKeyMap {
 		Push: key.NewBinding(
 			key.WithKeys("u"),
 			key.WithHelp("u", "push"),
+		),
+		Choose: key.NewBinding(
+			key.WithKeys("enter"),
+			key.WithHelp("enter", "choose"),
 		),
 	}
 }

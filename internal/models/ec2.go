@@ -78,7 +78,7 @@ func (m ec2Model) Update(msg tea.Msg) (ec2Model, tea.Cmd) {
 
 		switch {
 		case key.Matches(msg, m.keys.Refresh):
-			m.status = "Refreshing instances..."
+			m.status = styles.StatusStyle.Render("Refreshing instances...")
 			m.err = nil
 			return m, tea.Batch(m.parent.spinner.Tick, commands.FetchInstancesCmd(m.ec2Svc))
 		case key.Matches(msg, m.keys.Stop):
@@ -179,19 +179,18 @@ func (m ec2Model) Update(msg tea.Msg) (ec2Model, tea.Cmd) {
 func (m ec2Model) View() string {
 	if m.showDetails {
 		if m.detailInstance != nil {
-			return styles.DetailStyle.Render(
-				fmt.Sprintf("Instance ID:   %s\n", aws.StringValue(m.detailInstance.InstanceId)) +
-					fmt.Sprintf("Name:          %s\n", utils.GetInstanceName(m.detailInstance)) +
-					fmt.Sprintf("State:         %s\n", aws.StringValue(m.detailInstance.State.Name)) +
-					fmt.Sprintf("Type:          %s\n", aws.StringValue(m.detailInstance.InstanceType)) +
-					fmt.Sprintf("Launch Time:   %s\n", aws.TimeValue(m.detailInstance.LaunchTime).Format(time.RFC822)) +
-					fmt.Sprintf("Public IP:     %s\n", aws.StringValue(m.detailInstance.PublicIpAddress)) +
-					fmt.Sprintf("Private IP:    %s\n", aws.StringValue(m.detailInstance.PrivateIpAddress)) +
-					fmt.Sprintf("Availability Zone: %s\n", aws.StringValue(m.detailInstance.Placement.AvailabilityZone)) +
-					fmt.Sprintf("VPC ID:        %s\n", aws.StringValue(m.detailInstance.VpcId)) +
-					fmt.Sprintf("Subnet ID:     %s\n", aws.StringValue(m.detailInstance.SubnetId)) +
-					"\nPress 'esc' or 'backspace' to go back." +
-					"\n" + styles.StatusStyle.Render(fmt.Sprintf("Status: %s", m.status)),
+			return "\n" + styles.DetailStyle.Render(
+				fmt.Sprintf("Instance ID:   %s\n", aws.StringValue(m.detailInstance.InstanceId))+
+					fmt.Sprintf("Name:          %s\n", utils.GetInstanceName(m.detailInstance))+
+					fmt.Sprintf("State:         %s\n", aws.StringValue(m.detailInstance.State.Name))+
+					fmt.Sprintf("Type:          %s\n", aws.StringValue(m.detailInstance.InstanceType))+
+					fmt.Sprintf("Launch Time:   %s\n", aws.TimeValue(m.detailInstance.LaunchTime).Format(time.RFC822))+
+					fmt.Sprintf("Public IP:     %s\n", aws.StringValue(m.detailInstance.PublicIpAddress))+
+					fmt.Sprintf("Private IP:    %s\n", aws.StringValue(m.detailInstance.PrivateIpAddress))+
+					fmt.Sprintf("Availability Zone: %s\n", aws.StringValue(m.detailInstance.Placement.AvailabilityZone))+
+					fmt.Sprintf("VPC ID:        %s\n", aws.StringValue(m.detailInstance.VpcId))+
+					fmt.Sprintf("Subnet ID:     %s\n", aws.StringValue(m.detailInstance.SubnetId))+
+					"\nPress 'esc' or 'backspace' to go back.",
 			)
 		}
 		return styles.StatusStyle.Render("No details available.\n")

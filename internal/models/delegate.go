@@ -11,7 +11,7 @@ import (
 
 type ItemDelegate struct{}
 
-func (d ItemDelegate) Height() int                               { return 2 }
+func (d ItemDelegate) Height() int                               { return 1 }
 func (d ItemDelegate) Spacing() int                              { return 1 }
 func (d ItemDelegate) Update(msg tea.Msg, m *list.Model) tea.Cmd { return nil }
 func (d ItemDelegate) Render(w io.Writer, m list.Model, index int, listItem list.Item) {
@@ -20,7 +20,7 @@ func (d ItemDelegate) Render(w io.Writer, m list.Model, index int, listItem list
 		return
 	}
 
-	str := fmt.Sprintf("%d. %s\n  %s", index+1, i.Title(), i.Description())
+	str := fmt.Sprintf("%s\n%s", i.Title(), i.Description())
 
 	fn := styles.UnselectedItemStyle.Render
 	if index == m.Index() {

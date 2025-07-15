@@ -45,8 +45,8 @@ func (m ecrModel) Update(msg tea.Msg) (ecrModel, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		h, v := styles.AppStyle.GetFrameSize()
-		m.repositoryList.SetSize(msg.Width-3*h, msg.Height-4*v)
-		m.imageList.SetSize(msg.Width-3*h, msg.Height-4*v)
+		m.repositoryList.SetSize(msg.Width-3*h, msg.Height-3*v)
+		m.imageList.SetSize(msg.Width-3*h, msg.Height-3*v)
 		return m, nil
 	case tea.KeyMsg:
 		switch {
@@ -170,11 +170,11 @@ func (m ecrModel) View() string {
 			s = m.repositoryList.View()
 		}
 	case ecrStateImageList:
-		m.imageList.Title = fmt.Sprintf("Images in Registry: %s", aws.StringValue(m.selectedRepository.RepositoryName))
+		s = fmt.Sprintf("%s > %s > %s", styles.SubHeaderStyle.Render(m.repositoryList.Title), styles.SubHeaderStyle.Render(*m.selectedRepository.RepositoryName), styles.SubHeaderStyle.Render("Images"))
 		if len(m.imageList.Items()) == 0 && m.status == "Ready" {
-			s = styles.StatusStyle.Render("No ECR images found in this repository.\n")
+			s += styles.StatusStyle.Render("No ECR images found in this repository.\n")
 		} else {
-			s = m.imageList.View()
+			s += m.imageList.View()
 		}
 	}
 	return s

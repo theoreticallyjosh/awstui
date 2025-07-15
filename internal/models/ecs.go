@@ -57,9 +57,9 @@ func (m ecsModel) Update(msg tea.Msg) (ecsModel, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		h, v := styles.AppStyle.GetFrameSize()
-		m.paginator.PerPage = msg.Height - 7*v
-		m.clusterList.SetSize(msg.Width-3*h, msg.Height-4*v)
-		m.serviceList.SetSize(msg.Width-3*h, msg.Height-4*v)
+		m.paginator.PerPage = msg.Height - 4*v
+		m.clusterList.SetSize(msg.Width-3*h, msg.Height-3*v)
+		m.serviceList.SetSize(msg.Width-3*h, msg.Height-3*v)
 		return m, nil
 	case tea.KeyMsg:
 		switch {
@@ -122,7 +122,7 @@ func (m ecsModel) Update(msg tea.Msg) (ecsModel, tea.Cmd) {
 				m.status = "Refreshing ECS clusters..."
 				m.err = nil
 				return m, tea.Batch(m.parent.spinner.Tick, commands.FetchECSClustersCmd(m.ecsSvc))
-			case key.Matches(msg, key.NewBinding(key.WithKeys("enter"), key.WithHelp("enter", "select cluster"))):
+			case key.Matches(msg, m.keys.Choose):
 				if m.clusterList.SelectedItem() != nil {
 					selectedItem := m.clusterList.SelectedItem().(ecsClusterItem)
 					m.detailCluster = selectedItem.cluster
@@ -255,7 +255,7 @@ func (m ecsModel) View() string {
 			s = m.clusterList.View()
 		}
 	case ecsStateServiceList:
-		m.serviceList.Title = fmt.Sprintf("ECS Services in Cluster: %s", aws.StringValue(m.detailCluster.ClusterName))
+		s = fmt.Sprintf("%s > %s", styles.SubHeaderStyle.Render("ECS Clusters"), styles.SubHeaderStyle.Render(aws.StringValue(m.detailCluster.ClusterName)))
 		if len(m.serviceList.Items()) == 0 && m.status == "Ready" {
 			s += styles.StatusStyle.Render("No ECS services found in this cluster.") + "\n"
 		} else {
@@ -263,7 +263,7 @@ func (m ecsModel) View() string {
 		}
 	case ecsStateServiceDetails:
 		if m.detailService != nil {
-			s = styles.SubHeaderStyle.Render(fmt.Sprintf("ECS Service Details: %s", aws.StringValue(m.detailService.ServiceName))) + "\n"
+			s = fmt.Sprintf("%s > %s > %s", styles.SubHeaderStyle.Render("ECS Clusters"), styles.SubHeaderStyle.Render(m.clusterList.SelectedItem().FilterValue()), styles.SubHeaderStyle.Render(aws.StringValue(m.detailService.ServiceName)))
 			s += "\n" + styles.DetailStyle.Render(
 				fmt.Sprintf("Service Name:  %s\n", aws.StringValue(m.detailService.ServiceName))+
 					fmt.Sprintf("Service ARN:   %s\n", aws.StringValue(m.detailService.ServiceArn))+
@@ -283,7 +283,7 @@ func (m ecsModel) View() string {
 	case ecsStateServiceConfirmAction:
 		// s = styles.ConfirmStyle.Render(fmt.Sprintf("\n%s", m.status))
 	case ecsStateServiceLogs:
-		s = styles.SubHeaderStyle.Render(fmt.Sprintf("Logs for Service: %s", aws.StringValue(m.detailService.ServiceName))) + "\n"
+		s = fmt.Sprintf("%s > %s > %s > %s\n", styles.SubHeaderStyle.Render(m.clusterList.Title), styles.SubHeaderStyle.Render(aws.StringValue(m.detailCluster.ClusterName)), styles.SubHeaderStyle.Render(m.serviceList.SelectedItem().FilterValue()), styles.SubHeaderStyle.Render("Logs"))
 		if m.serviceLogs == "" && m.status == "Ready" {
 			s += styles.StatusStyle.Render("No logs found for this service.\n")
 		} else {
@@ -293,8 +293,8 @@ func (m ecsModel) View() string {
 				s += item + "\n"
 			}
 		}
-		s += styles.PaginatorStyle.Render(m.paginator.View())
-		s += styles.StatusStyle.Render("\nPress 'esc' or 'backspace' to go back.")
+		s += m.paginator.View()
+		s += "\n" + styles.HelpStyle.Render("Press 'esc' or 'backspace' to go back.")
 	}
 
 	return s
