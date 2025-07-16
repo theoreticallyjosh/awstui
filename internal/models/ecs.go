@@ -59,7 +59,7 @@ func (m ecsModel) Update(msg tea.Msg) (ecsModel, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		h, v := styles.AppStyle.GetFrameSize()
-		m.paginator.PerPage = msg.Height - 4*v
+		m.paginator.PerPage = msg.Height - (5 + v)
 		m.clusterList.SetSize(msg.Width-(3+h), msg.Height-(5+v))
 		m.serviceList.SetSize(msg.Width-(3+h), msg.Height-(5+v))
 	case tea.KeyMsg:
@@ -226,6 +226,7 @@ func (m ecsModel) Update(msg tea.Msg) (ecsModel, tea.Cmd) {
 		m.confirming = false
 		return m, tea.Batch(m.parent.spinner.Tick, commands.FetchECSServicesCmd(m.ecsSvc, aws.StringValue(m.detailCluster.ClusterArn)))
 	case messages.EcsServiceLogsFetchedMsg:
+		m.header = append(m.header, aws.StringValue(m.detailCluster.ClusterName), m.serviceList.SelectedItem().FilterValue(), "Logs")
 		m.serviceLogs = string(msg)
 		m.paginator.SetTotalPages(len(strings.Split(m.serviceLogs, "\n")))
 		m.status = "Ready"
@@ -285,6 +286,7 @@ func (m ecsModel) View() string {
 	case ecsStateServiceConfirmAction:
 		// s = styles.ConfirmStyle.Render(fmt.Sprintf("\n%s", m.status))
 	case ecsStateServiceLogs:
+		s += "\n"
 		if m.serviceLogs == "" && m.status == "Ready" {
 			s += styles.StatusStyle.Render("No logs found for this service.\n")
 		} else {

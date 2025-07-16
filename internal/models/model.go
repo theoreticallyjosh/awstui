@@ -52,8 +52,8 @@ func setListStyle(l *list.Model) {
 	st := list.DefaultStyles()
 
 	st.Title = styles.SubHeaderStyle
-	st.FilterPrompt = lipgloss.NewStyle().Foreground(styles.TokyoNightGreen)
-	st.FilterCursor = lipgloss.NewStyle().Foreground(styles.TokyoNightGreen)
+	// st.FilterPrompt = lipgloss.NewStyle().Foreground(theme.Green())
+	// st.FilterCursor = lipgloss.NewStyle().Foreground(.TokyoNightGreen)
 	st.NoItems = styles.StatusStyle.UnsetPaddingLeft()
 	st.StatusBar = styles.StatusStyle
 	st.NoItems = styles.StatusStyle.UnsetPaddingLeft()
@@ -355,9 +355,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, cmd
 }
 func (m Model) Header(items []string) string {
-	ret := styles.HeaderStyle.Render(" 󰸏  AWS TUI")
-	for _, h := range items {
-		ret += styles.HeaderBarStyle.Render(" > ") + styles.SubHeaderStyle.Render(h)
+	ret := styles.HeaderStyle.Render(" 󰸏  AWS TUI ")
+	for i, h := range items {
+		if i > 0 {
+			ret += styles.HeaderBarStyle.Render(" > ")
+		} else {
+
+			ret += styles.HeaderBarStyle.Render(" ")
+		}
+		ret += styles.SubHeaderStyle.Render(h)
 	}
 	remainingWidth := m.width - lipgloss.Width(ret)
 	padding := styles.HeaderBarStyle.Width(remainingWidth).Render("")

@@ -1,88 +1,60 @@
 package styles
 
-import "github.com/charmbracelet/lipgloss"
+import (
+	"github.com/charmbracelet/lipgloss"
 
-// Tokyo Night Color Palette
-var (
-	TokyoNightBlue    = lipgloss.Color("#7AA2F7")
-	TokyoNightGreen   = lipgloss.Color("#9EEB49")
-	TokyoNightYellow  = lipgloss.Color("#E0AF68")
-	TokyoNightRed     = lipgloss.Color("#F7768E")
-	TokyoNightPurple  = lipgloss.Color("#BB9AF7")
-	TokyoNightCyan    = lipgloss.Color("#7DCFFF")
-	TokyoNightGray    = lipgloss.Color("#A9B1D6")
-	TokyoNightDarkBg  = lipgloss.Color("#1A1B26")
-	TokyoNightDarkFG  = lipgloss.Color("#333336")
-	TokyoNightLightBg = lipgloss.Color("#1F2335")
-	TokyoNightLightFg = lipgloss.Color("#3B4261")
+	tint "github.com/lrstanley/bubbletint"
 )
 
-// Define styles using lipgloss
+var theme = tint.TintTokyoNightStorm
+
 var (
 	AppStyle = lipgloss.NewStyle().Padding(1, 2)
 
-	HeaderBarStyle = lipgloss.NewStyle().Foreground(TokyoNightGray).Background(TokyoNightDarkBg)
+	HeaderBarStyle = lipgloss.NewStyle().Foreground(theme.Fg()).Background(theme.Bg())
 
 	HeaderStyle = lipgloss.NewStyle().
-			Foreground(TokyoNightPurple).
-			Background(TokyoNightDarkBg).
+			Foreground(theme.Purple()).
+			Background(theme.BrightBlack()).
 			Bold(true)
 
 	SubHeaderStyle = lipgloss.NewStyle().
-			Foreground(TokyoNightGreen).
-			Background(TokyoNightDarkBg).
+			Foreground(theme.Green()).
+			Background(theme.Bg()).
 			Bold(true)
 
 	ErrorStyle = lipgloss.NewStyle().
-			Foreground(TokyoNightRed).
+			Foreground(theme.Red()).
 			Bold(true).
 			PaddingTop(1)
 
 	ConfirmStyle = lipgloss.NewStyle().
-			Foreground(TokyoNightGreen).
+			Foreground(theme.Green()).
 			Bold(true).
 			PaddingTop(1)
 
 	DetailStyle = lipgloss.NewStyle().
 			Border(lipgloss.NormalBorder(), true).
-			BorderForeground(TokyoNightBlue).
+			BorderForeground(theme.Blue()).
 			Padding(1, 2)
 
 	TitleStyle        = lipgloss.NewStyle().Bold(true)
-	DescriptionStyle  = lipgloss.NewStyle().Foreground(TokyoNightLightFg)
-	SelectedItemStyle = lipgloss.NewStyle().Foreground(TokyoNightBlue).Background(TokyoNightLightBg).Border(lipgloss.NormalBorder(), false, false, false, true).
-				BorderForeground(TokyoNightBlue).BorderBackground(TokyoNightLightBg)
+	DescriptionStyle  = lipgloss.NewStyle().Foreground(theme.Fg())
+	SelectedItemStyle = lipgloss.NewStyle().Foreground(theme.BrightBlue()).Background(theme.SelectionBg()).Border(lipgloss.NormalBorder(), false, false, false, true).
+				BorderForeground(theme.Blue()).BorderBackground(theme.SelectionBg())
 	UnselectedItemStyle = lipgloss.NewStyle().PaddingLeft(1)
 
-	ExtrasStyle = lipgloss.NewStyle().Foreground(lipgloss.AdaptiveColor{
-		Dark:  string(TokyoNightLightFg),
-		Light: string(TokyoNightDarkFG),
-	})
+	ExtrasStyle = lipgloss.NewStyle().Foreground(theme.Fg())
 
-	StatusStyle = lipgloss.NewStyle().Foreground(lipgloss.AdaptiveColor{
-		Dark:  string(TokyoNightLightFg),
-		Light: string(TokyoNightDarkFG),
-	}).Background(TokyoNightDarkBg).PaddingLeft(1)
+	StatusStyle = lipgloss.NewStyle().Foreground(theme.Fg()).Background(theme.Bg()).PaddingLeft(1)
 
-	HelpStyle = lipgloss.NewStyle().Foreground(lipgloss.AdaptiveColor{
-		Dark:  string(TokyoNightLightFg),
-		Light: string(TokyoNightDarkFG),
-	})
+	HelpStyle = lipgloss.NewStyle().Foreground(theme.BrightBlack())
 
-	KeysStyle = lipgloss.NewStyle().Foreground(lipgloss.AdaptiveColor{
-		Light: string(TokyoNightLightFg),
-		Dark:  string(TokyoNightDarkFG),
-	})
+	KeysStyle             = lipgloss.NewStyle().Foreground(theme.Bg())
 	MenuItemStyle         = lipgloss.NewStyle().PaddingLeft(1)
-	SelectedMenuItemStyle = lipgloss.NewStyle().Foreground(TokyoNightBlue).String()
+	SelectedMenuItemStyle = lipgloss.NewStyle().Foreground(theme.Blue()).String()
 
-	ActivePager = lipgloss.NewStyle().Foreground(lipgloss.AdaptiveColor{
-		Dark:  string(TokyoNightGray),
-		Light: string(TokyoNightDarkFG),
-	})
+	ActivePager = lipgloss.NewStyle().Foreground(theme.Fg())
 
-	InactivePager = lipgloss.NewStyle().Foreground(lipgloss.AdaptiveColor{
-		Light: string(TokyoNightLightFg),
-		Dark:  string(TokyoNightDarkFG),
-	})
+	InactivePager = lipgloss.NewStyle().Foreground(theme.BrightBlack())
 )
