@@ -21,12 +21,16 @@ var (
 var (
 	AppStyle = lipgloss.NewStyle().Padding(1, 2)
 
+	HeaderBarStyle = lipgloss.NewStyle().Foreground(TokyoNightGray).Background(TokyoNightDarkBg)
+
 	HeaderStyle = lipgloss.NewStyle().
 			Foreground(TokyoNightPurple).
+			Background(TokyoNightDarkBg).
 			Bold(true)
 
 	SubHeaderStyle = lipgloss.NewStyle().
 			Foreground(TokyoNightGreen).
+			Background(TokyoNightDarkBg).
 			Bold(true)
 
 	ErrorStyle = lipgloss.NewStyle().
@@ -58,7 +62,7 @@ var (
 	StatusStyle = lipgloss.NewStyle().Foreground(lipgloss.AdaptiveColor{
 		Dark:  string(TokyoNightLightFg),
 		Light: string(TokyoNightDarkFG),
-	}).Background(TokyoNightLightBg).PaddingLeft(1)
+	}).Background(TokyoNightDarkBg).PaddingLeft(1)
 
 	HelpStyle = lipgloss.NewStyle().Foreground(lipgloss.AdaptiveColor{
 		Dark:  string(TokyoNightLightFg),

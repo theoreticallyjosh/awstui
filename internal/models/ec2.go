@@ -28,6 +28,7 @@ type ec2Model struct {
 	showDetails    bool
 	detailInstance *ec2.Instance
 	keys           *keys.ListKeyMap
+	Header         []string
 }
 
 func (m ec2Model) Init() tea.Cmd {
@@ -35,12 +36,12 @@ func (m ec2Model) Init() tea.Cmd {
 }
 
 func (m ec2Model) Update(msg tea.Msg) (ec2Model, tea.Cmd) {
+	m.Header = []string{"EC2 Instances"}
 	var cmd tea.Cmd
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		h, v := styles.AppStyle.GetFrameSize()
-		m.instanceList.SetSize(msg.Width-3*h, msg.Height-3*v)
-		return m, nil
+		m.instanceList.SetSize(msg.Width-(h+2), msg.Height-(v+5))
 	case tea.KeyMsg:
 		if m.instanceList.FilterState() == list.Filtering {
 			break

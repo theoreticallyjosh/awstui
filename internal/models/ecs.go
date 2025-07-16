@@ -45,6 +45,7 @@ type ecsModel struct {
 	keys                    *keys.ListKeyMap
 	paginator               paginator.Model
 	state                   ecsState
+	header                  []string
 }
 
 func (m ecsModel) Init() tea.Cmd {
@@ -53,14 +54,14 @@ func (m ecsModel) Init() tea.Cmd {
 
 func (m ecsModel) Update(msg tea.Msg) (ecsModel, tea.Cmd) {
 	var cmd tea.Cmd
+	m.header = []string{"ECS Clusters"}
 
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		h, v := styles.AppStyle.GetFrameSize()
 		m.paginator.PerPage = msg.Height - 4*v
-		m.clusterList.SetSize(msg.Width-3*h, msg.Height-3*v)
-		m.serviceList.SetSize(msg.Width-3*h, msg.Height-3*v)
-		return m, nil
+		m.clusterList.SetSize(msg.Width-(3+h), msg.Height-(5+v))
+		m.serviceList.SetSize(msg.Width-(3+h), msg.Height-(5+v))
 	case tea.KeyMsg:
 		switch {
 		case key.Matches(msg, key.NewBinding(key.WithKeys("backspace", "esc"), key.WithHelp("backspace/esc", "back"))):
@@ -132,6 +133,7 @@ func (m ecsModel) Update(msg tea.Msg) (ecsModel, tea.Cmd) {
 				}
 			}
 		case ecsStateServiceList:
+			m.header = append(m.header, aws.StringValue(m.detailCluster.ClusterName), "Services")
 			if m.serviceList.FilterState() == list.Filtering {
 				break
 			}
@@ -186,6 +188,7 @@ func (m ecsModel) Update(msg tea.Msg) (ecsModel, tea.Cmd) {
 		case ecsStateServiceDetails:
 			// No key handling in these states for now
 		case ecsStateServiceLogs:
+			m.header = append(m.header, aws.StringValue(m.detailCluster.ClusterName), m.serviceList.SelectedItem().FilterValue(), "Logs")
 			m.paginator, cmd = m.paginator.Update(msg)
 			return m, cmd
 		}
@@ -200,6 +203,7 @@ func (m ecsModel) Update(msg tea.Msg) (ecsModel, tea.Cmd) {
 		m.err = nil
 		return m, nil
 	case messages.EcsServicesFetchedMsg:
+		m.header = append(m.header, m.clusterList.SelectedItem().FilterValue(), "Services")
 		listItems := make([]list.Item, len(msg))
 		for i, service := range msg {
 			listItems[i] = ecsServiceItem{service: service}
@@ -255,7 +259,6 @@ func (m ecsModel) View() string {
 			s = m.clusterList.View()
 		}
 	case ecsStateServiceList:
-		s = fmt.Sprintf("%s > %s", styles.SubHeaderStyle.Render("ECS Clusters"), styles.SubHeaderStyle.Render(aws.StringValue(m.detailCluster.ClusterName)))
 		if len(m.serviceList.Items()) == 0 && m.status == "Ready" {
 			s += styles.StatusStyle.Render("No ECS services found in this cluster.") + "\n"
 		} else {
@@ -263,7 +266,6 @@ func (m ecsModel) View() string {
 		}
 	case ecsStateServiceDetails:
 		if m.detailService != nil {
-			s = fmt.Sprintf("%s > %s > %s", styles.SubHeaderStyle.Render("ECS Clusters"), styles.SubHeaderStyle.Render(m.clusterList.SelectedItem().FilterValue()), styles.SubHeaderStyle.Render(aws.StringValue(m.detailService.ServiceName)))
 			s += "\n" + styles.DetailStyle.Render(
 				fmt.Sprintf("Service Name:  %s\n", aws.StringValue(m.detailService.ServiceName))+
 					fmt.Sprintf("Service ARN:   %s\n", aws.StringValue(m.detailService.ServiceArn))+
@@ -283,7 +285,6 @@ func (m ecsModel) View() string {
 	case ecsStateServiceConfirmAction:
 		// s = styles.ConfirmStyle.Render(fmt.Sprintf("\n%s", m.status))
 	case ecsStateServiceLogs:
-		s = fmt.Sprintf("%s > %s > %s > %s\n", styles.SubHeaderStyle.Render(m.clusterList.Title), styles.SubHeaderStyle.Render(aws.StringValue(m.detailCluster.ClusterName)), styles.SubHeaderStyle.Render(m.serviceList.SelectedItem().FilterValue()), styles.SubHeaderStyle.Render("Logs"))
 		if m.serviceLogs == "" && m.status == "Ready" {
 			s += styles.StatusStyle.Render("No logs found for this service.\n")
 		} else {

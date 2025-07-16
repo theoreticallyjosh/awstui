@@ -34,6 +34,7 @@ type ecrModel struct {
 	action             string
 	actionID           *string
 	selectedRepository *ecr.Repository
+	header             []string
 }
 
 func (m ecrModel) Init() tea.Cmd {
@@ -41,13 +42,13 @@ func (m ecrModel) Init() tea.Cmd {
 }
 
 func (m ecrModel) Update(msg tea.Msg) (ecrModel, tea.Cmd) {
+	m.header = []string{"ECR Repositories"}
 	var cmd tea.Cmd
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		h, v := styles.AppStyle.GetFrameSize()
-		m.repositoryList.SetSize(msg.Width-3*h, msg.Height-3*v)
-		m.imageList.SetSize(msg.Width-3*h, msg.Height-3*v)
-		return m, nil
+		m.repositoryList.SetSize(msg.Width-(h+3), msg.Height-(v+5))
+		m.imageList.SetSize(msg.Width-(3+h), msg.Height-(5+v))
 	case tea.KeyMsg:
 		switch {
 		case key.Matches(msg, key.NewBinding(key.WithKeys("backspace", "esc"), key.WithHelp("backspace/esc", "back"))):
@@ -132,6 +133,7 @@ func (m ecrModel) Update(msg tea.Msg) (ecrModel, tea.Cmd) {
 		return m, nil
 
 	case messages.EcrImagesFetchedMsg:
+		m.header = append(m.header, aws.StringValue(m.selectedRepository.RepositoryName), "Images")
 		listItems := make([]list.Item, len(msg))
 		for i, image := range msg {
 			listItems[i] = ecrImageItem{image: image}
@@ -155,6 +157,7 @@ func (m ecrModel) Update(msg tea.Msg) (ecrModel, tea.Cmd) {
 	if m.state == ecrStateRepositoryList {
 		m.repositoryList, cmd = m.repositoryList.Update(msg)
 	} else if m.state == ecrStateImageList {
+		m.header = append(m.header, aws.StringValue(m.selectedRepository.RepositoryName), "Images")
 		m.imageList, cmd = m.imageList.Update(msg)
 	}
 	return m, cmd
@@ -170,7 +173,6 @@ func (m ecrModel) View() string {
 			s = m.repositoryList.View()
 		}
 	case ecrStateImageList:
-		s = fmt.Sprintf("%s > %s > %s", styles.SubHeaderStyle.Render(m.repositoryList.Title), styles.SubHeaderStyle.Render(*m.selectedRepository.RepositoryName), styles.SubHeaderStyle.Render("Images"))
 		if len(m.imageList.Items()) == 0 && m.status == "Ready" {
 			s += styles.StatusStyle.Render("No ECR images found in this repository.\n")
 		} else {
