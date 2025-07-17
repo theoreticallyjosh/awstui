@@ -6,55 +6,78 @@ import (
 	tint "github.com/lrstanley/bubbletint"
 )
 
-var theme = tint.TintTokyoNightStorm
+var Theme tint.Tint
 
 var (
+	AppStyle,
+	HeaderBarStyle,
+	HeaderStyle,
+	SubHeaderStyle,
+	ErrorStyle,
+	ConfirmStyle,
+	DetailStyle,
+	TitleStyle,
+	DescriptionStyle,
+	SelectedItemStyle,
+	UnselectedItemStyle,
+	ExtrasStyle,
+	StatusStyle,
+	HelpStyle,
+	KeysStyle,
+	MenuItemStyle,
+	SelectedMenuItemStyle,
+	ActivePager,
+	InactivePager lipgloss.Style
+)
+
+func LoadStyle() {
+
 	AppStyle = lipgloss.NewStyle().Padding(1, 2)
 
-	HeaderBarStyle = lipgloss.NewStyle().Foreground(theme.Fg()).Background(theme.Bg())
+	HeaderBarStyle = lipgloss.NewStyle().Foreground(Theme.Fg()).Background(Theme.Bg())
 
 	HeaderStyle = lipgloss.NewStyle().
-			Foreground(theme.Purple()).
-			Background(theme.BrightBlack()).
-			Bold(true)
+		Foreground(Theme.Purple()).
+		Background(Theme.BrightBlack()).
+		Bold(true)
 
 	SubHeaderStyle = lipgloss.NewStyle().
-			Foreground(theme.Green()).
-			Background(theme.Bg()).
-			Bold(true)
+		Foreground(Theme.Green()).
+		Background(Theme.Bg()).
+		Bold(true)
 
 	ErrorStyle = lipgloss.NewStyle().
-			Foreground(theme.Red()).
-			Bold(true).
-			PaddingTop(1)
+		Foreground(Theme.Red()).
+		Bold(true).
+		PaddingTop(1)
 
 	ConfirmStyle = lipgloss.NewStyle().
-			Foreground(theme.Green()).
-			Bold(true).
-			PaddingTop(1)
+		Foreground(Theme.Green()).
+		Bold(true).
+		PaddingTop(1)
 
 	DetailStyle = lipgloss.NewStyle().
-			Border(lipgloss.NormalBorder(), true).
-			BorderForeground(theme.Blue()).
-			Padding(1, 2)
+		Border(lipgloss.NormalBorder(), true).
+		BorderForeground(Theme.Blue()).
+		Padding(1, 2)
 
-	TitleStyle        = lipgloss.NewStyle().Bold(true)
-	DescriptionStyle  = lipgloss.NewStyle().Foreground(theme.Fg())
-	SelectedItemStyle = lipgloss.NewStyle().Foreground(theme.BrightBlue()).Background(theme.SelectionBg()).Border(lipgloss.NormalBorder(), false, false, false, true).
-				BorderForeground(theme.Blue()).BorderBackground(theme.SelectionBg())
+	TitleStyle = lipgloss.NewStyle().Bold(true)
+	DescriptionStyle = lipgloss.NewStyle().Foreground(Theme.Fg())
+	SelectedItemStyle = lipgloss.NewStyle().Foreground(Theme.BrightBlue()).Background(Theme.SelectionBg()).Border(lipgloss.NormalBorder(), false, false, false, true).
+		BorderForeground(Theme.Blue()).BorderBackground(Theme.SelectionBg())
 	UnselectedItemStyle = lipgloss.NewStyle().PaddingLeft(1)
 
-	ExtrasStyle = lipgloss.NewStyle().Foreground(theme.Fg())
+	ExtrasStyle = lipgloss.NewStyle().Foreground(Theme.Fg())
 
-	StatusStyle = lipgloss.NewStyle().Foreground(theme.Fg()).Background(theme.Bg()).PaddingLeft(1)
+	StatusStyle = lipgloss.NewStyle().Foreground(Theme.Fg()).Background(Theme.Bg()).PaddingLeft(1)
 
-	HelpStyle = lipgloss.NewStyle().Foreground(theme.BrightBlack())
+	HelpStyle = lipgloss.NewStyle().Foreground(Theme.BrightBlack())
 
-	KeysStyle             = lipgloss.NewStyle().Foreground(theme.Bg())
-	MenuItemStyle         = lipgloss.NewStyle().PaddingLeft(1)
-	SelectedMenuItemStyle = lipgloss.NewStyle().Foreground(theme.Blue()).String()
+	KeysStyle = lipgloss.NewStyle().Foreground(Theme.Bg())
+	MenuItemStyle = lipgloss.NewStyle().PaddingLeft(1)
+	SelectedMenuItemStyle = lipgloss.NewStyle().Foreground(Theme.Blue())
 
-	ActivePager = lipgloss.NewStyle().Foreground(theme.Fg())
+	ActivePager = lipgloss.NewStyle().Foreground(Theme.Fg())
 
-	InactivePager = lipgloss.NewStyle().Foreground(theme.BrightBlack())
-)
+	InactivePager = lipgloss.NewStyle().Foreground(Theme.BrightBlack())
+}

@@ -20,7 +20,26 @@ go install github.com/jhagofsk/awstui@latest
 
 ## Configuration
 
+Default path for the global config file:
+
+- Linux: `~/.config/awstui/config.yml`
+- MacOS: `~/Library/Application\ Support/awstui/config.yml`
+- Windows: `%LOCALAPPDATA%\awstui\config.yml`
+
+### AWS
+
 To use awstui, you will need to configure your AWS credentials. You can follow the same steps required of [aws-cli](https://github.com/aws/aws-cli#configuration).
+
+### Theme
+
+You can set the color theme in the awstui config.yml file:
+
+```
+theme: <bubble_tint_id>
+
+```
+
+A list of available themes/tints can be found [here](https://github.com/lrstanley/bubbletint/blob/master/DEFAULT_TINTS.md).
 
 ## Usage
 

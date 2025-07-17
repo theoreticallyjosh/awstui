@@ -1,15 +1,22 @@
 package main
 
 import (
+	"awstui/internal/config"
 	"awstui/internal/models"
+	"awstui/internal/styles"
 	"log"
 
 	tea "github.com/charmbracelet/bubbletea"
+	tint "github.com/lrstanley/bubbletint"
 )
 
 func main() {
-	tea.ClearScreen()
 
+	conf := config.LoadConfig()
+	tint.NewDefaultRegistry()
+	styles.Theme, _ = tint.GetTint(conf.Theme)
+	styles.LoadStyle()
+	tea.ClearScreen()
 	m := models.NewModel()
 	// Start the Bubble Tea program
 	p := tea.NewProgram(m, tea.WithAltScreen())
