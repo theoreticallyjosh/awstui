@@ -1,7 +1,6 @@
 package models
 
 import (
-	"awstui/internal/styles"
 	"awstui/internal/utils"
 	"fmt"
 	"time"
@@ -23,8 +22,8 @@ type resourceItem struct {
 	title, desc string
 }
 
-func (i resourceItem) Title() string       { return styles.TitleStyle.Render(i.title) }
-func (i resourceItem) Description() string { return styles.DescriptionStyle.Render(i.desc) }
+func (i resourceItem) Title() string       { return i.title }
+func (i resourceItem) Description() string { return i.desc }
 func (i resourceItem) FilterValue() string { return i.title }
 
 // EC2 Instance Item
@@ -33,14 +32,14 @@ type ec2InstanceItem struct {
 }
 
 func (i ec2InstanceItem) Title() string {
-	return styles.TitleStyle.Render(getInstanceName(i.instance))
+	return getInstanceName(i.instance)
 }
 func (i ec2InstanceItem) Description() string {
-	return styles.DescriptionStyle.Render(fmt.Sprintf("ID: %s | State: %s | Type: %s",
+	return fmt.Sprintf("ID: %s | State: %s | Type: %s",
 		aws.StringValue(i.instance.InstanceId),
 		aws.StringValue(i.instance.State.Name),
 		aws.StringValue(i.instance.InstanceType),
-	))
+	)
 }
 func (i ec2InstanceItem) FilterValue() string { return getInstanceName(i.instance) }
 
@@ -59,10 +58,10 @@ type ecsClusterItem struct {
 }
 
 func (i ecsClusterItem) Title() string {
-	return styles.TitleStyle.Render(aws.StringValue(i.cluster.ClusterName))
+	return aws.StringValue(i.cluster.ClusterName)
 }
 func (i ecsClusterItem) Description() string {
-	return styles.DescriptionStyle.Render(fmt.Sprintf("ARN: %s", aws.StringValue(i.cluster.ClusterArn)))
+	return fmt.Sprintf("ARN: %s", aws.StringValue(i.cluster.ClusterArn))
 }
 func (i ecsClusterItem) FilterValue() string {
 	return aws.StringValue(i.cluster.ClusterName)
@@ -74,14 +73,14 @@ type ecsServiceItem struct {
 }
 
 func (i ecsServiceItem) Title() string {
-	return styles.TitleStyle.Render(aws.StringValue(i.service.ServiceName))
+	return aws.StringValue(i.service.ServiceName)
 }
 func (i ecsServiceItem) Description() string {
-	return styles.DescriptionStyle.Render(fmt.Sprintf("Status: %s | Desired: %d | Running: %d",
+	return fmt.Sprintf("Status: %s | Desired: %d | Running: %d",
 		aws.StringValue(i.service.Status),
 		aws.Int64Value(i.service.DesiredCount),
 		aws.Int64Value(i.service.RunningCount),
-	))
+	)
 }
 func (i ecsServiceItem) FilterValue() string {
 	return aws.StringValue(i.service.ServiceName)
@@ -93,11 +92,11 @@ type ecrRepositoryItem struct {
 }
 
 func (i ecrRepositoryItem) Title() string {
-	return styles.TitleStyle.Render(aws.StringValue(i.repository.RepositoryName))
+	return aws.StringValue(i.repository.RepositoryName)
 }
 
 func (i ecrRepositoryItem) Description() string {
-	return styles.DescriptionStyle.Render(fmt.Sprintf("URI: %s", aws.StringValue(i.repository.RepositoryUri)))
+	return fmt.Sprintf("URI: %s", aws.StringValue(i.repository.RepositoryUri))
 }
 
 func (i ecrRepositoryItem) FilterValue() string {
@@ -111,16 +110,16 @@ type ecrImageItem struct {
 
 func (i ecrImageItem) Title() string {
 	if len(i.image.ImageTags) > 0 {
-		return styles.TitleStyle.Render(utils.ArrayToCSV(i.image.ImageTags))
+		return utils.ArrayToCSV(i.image.ImageTags)
 	}
 	return aws.StringValue(i.image.ImageDigest)
 }
 
 func (i ecrImageItem) Description() string {
-	return styles.DescriptionStyle.Render(fmt.Sprintf("Digest: %s | Pushed: %s",
+	return fmt.Sprintf("Digest: %s | Pushed: %s",
 		aws.StringValue(i.image.ImageDigest),
 		aws.TimeValue(i.image.ImagePushedAt).Format(time.RFC822),
-	))
+	)
 }
 
 func (i ecrImageItem) FilterValue() string {

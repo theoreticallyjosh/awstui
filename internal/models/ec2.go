@@ -40,8 +40,7 @@ func (m ec2Model) Update(msg tea.Msg) (ec2Model, tea.Cmd) {
 	var cmd tea.Cmd
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
-		h, v := styles.AppStyle.GetFrameSize()
-		m.instanceList.SetSize(msg.Width-(h+2), msg.Height-(v+5))
+		m.instanceList.SetSize(msg.Width, msg.Height)
 	case tea.KeyMsg:
 		if m.instanceList.FilterState() == list.Filtering {
 			break

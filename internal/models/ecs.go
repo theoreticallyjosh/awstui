@@ -58,13 +58,12 @@ func (m ecsModel) Update(msg tea.Msg) (ecsModel, tea.Cmd) {
 
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
-		h, v := styles.AppStyle.GetFrameSize()
-		m.paginator.PerPage = msg.Height - (5 + v)
-		m.clusterList.SetSize(msg.Width-(3+h), msg.Height-(5+v))
-		m.serviceList.SetSize(msg.Width-(3+h), msg.Height-(5+v))
+		m.paginator.PerPage = msg.Height - 2
+		m.clusterList.SetSize(msg.Width, msg.Height)
+		m.serviceList.SetSize(msg.Width, msg.Height)
 	case tea.KeyMsg:
 		switch {
-		case key.Matches(msg, key.NewBinding(key.WithKeys("backspace", "esc"), key.WithHelp("backspace/esc", "back"))):
+		case key.Matches(msg, key.NewBinding(key.WithKeys("esc"), key.WithHelp("esc", "back"))):
 			if m.state == ecsStateServiceList {
 				m.state = ecsStateClusterList
 				m.status = "Ready"
@@ -255,15 +254,15 @@ func (m ecsModel) View() string {
 	switch m.state {
 	case ecsStateClusterList:
 		if len(m.clusterList.Items()) == 0 && m.status == "Ready" {
-			s = styles.StatusStyle.Render("No ECS clusters found in this region.\n")
+			s = "No ECS clusters found in this region.\n"
 		} else {
 			s = m.clusterList.View()
 		}
 	case ecsStateServiceList:
 		if len(m.serviceList.Items()) == 0 && m.status == "Ready" {
-			s += styles.StatusStyle.Render("No ECS services found in this cluster.") + "\n"
+			s = "No ECS services found in this cluster.\n"
 		} else {
-			s += m.serviceList.View()
+			s = m.serviceList.View()
 		}
 	case ecsStateServiceDetails:
 		if m.detailService != nil {
@@ -286,7 +285,6 @@ func (m ecsModel) View() string {
 	case ecsStateServiceConfirmAction:
 		// s = styles.ConfirmStyle.Render(fmt.Sprintf("\n%s", m.status))
 	case ecsStateServiceLogs:
-		s += "\n"
 		if m.serviceLogs == "" && m.status == "Ready" {
 			s += styles.StatusStyle.Render("No logs found for this service.\n")
 		} else {

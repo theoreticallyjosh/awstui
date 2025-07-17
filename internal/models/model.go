@@ -98,9 +98,9 @@ func newMainMenu(listkeys *keys.ListKeyMap) list.Model {
 	}
 
 	mainList := list.New(items, ItemDelegate{}, 0, 0)
-	mainList.Title = ""
+	mainList.SetShowTitle(false)
 	mainList.SetShowStatusBar(false)
-	mainList.SetFilteringEnabled(false)
+	mainList.SetFilteringEnabled(true)
 	setListStyle(&mainList)
 	mainList.AdditionalShortHelpKeys = func() []key.Binding {
 		return []key.Binding{
@@ -113,12 +113,11 @@ func newMainMenu(listkeys *keys.ListKeyMap) list.Model {
 
 func newEC2List(listkeys *keys.ListKeyMap) list.Model {
 	ec2List := list.New([]list.Item{}, ItemDelegate{}, 0, 0)
-	ec2List.Title = ""
+	ec2List.SetShowTitle(false)
 	ec2List.SetShowStatusBar(false)
 	ec2List.SetFilteringEnabled(true)
 	setListStyle(&ec2List)
 
-	ec2List.SetStatusBarItemName("instance", "instances")
 	ec2List.AdditionalFullHelpKeys = func() []key.Binding {
 		return []key.Binding{
 			listkeys.Details,
@@ -134,11 +133,10 @@ func newEC2List(listkeys *keys.ListKeyMap) list.Model {
 
 func newECSClusterList(listkeys *keys.ListKeyMap) list.Model {
 	ecsClusterList := list.New([]list.Item{}, ItemDelegate{}, 0, 0)
-	ecsClusterList.Title = ""
+	ecsClusterList.SetShowTitle(false)
 	ecsClusterList.SetShowStatusBar(false)
 	ecsClusterList.SetFilteringEnabled(true)
 	setListStyle(&ecsClusterList)
-	ecsClusterList.SetStatusBarItemName("cluster", "clusters")
 	ecsClusterList.AdditionalFullHelpKeys = func() []key.Binding {
 		return []key.Binding{
 			listkeys.Choose,
@@ -151,11 +149,10 @@ func newECSClusterList(listkeys *keys.ListKeyMap) list.Model {
 
 func newECSServiceList(listkeys *keys.ListKeyMap) list.Model {
 	ecsServiceList := list.New([]list.Item{}, ItemDelegate{}, 0, 0)
-	ecsServiceList.Title = ""
+	ecsServiceList.SetShowTitle(false)
 	ecsServiceList.SetShowStatusBar(false)
 	ecsServiceList.SetFilteringEnabled(true)
 	setListStyle(&ecsServiceList)
-	ecsServiceList.SetStatusBarItemName("service", "services")
 	ecsServiceList.AdditionalFullHelpKeys = func() []key.Binding {
 		return []key.Binding{
 			listkeys.Details,
@@ -170,11 +167,10 @@ func newECSServiceList(listkeys *keys.ListKeyMap) list.Model {
 
 func newECRRepositoryList(listkeys *keys.ListKeyMap) list.Model {
 	ecrRepositoryList := list.New([]list.Item{}, ItemDelegate{}, 0, 0)
-	ecrRepositoryList.Title = ""
+	ecrRepositoryList.SetShowTitle(false)
 	ecrRepositoryList.SetShowStatusBar(false)
 	ecrRepositoryList.SetFilteringEnabled(true)
 	setListStyle(&ecrRepositoryList)
-	ecrRepositoryList.SetStatusBarItemName("repository", "repositories")
 	ecrRepositoryList.AdditionalFullHelpKeys = func() []key.Binding {
 		return []key.Binding{
 			listkeys.Choose,
@@ -187,7 +183,7 @@ func newECRRepositoryList(listkeys *keys.ListKeyMap) list.Model {
 
 func newECRImageList(listkeys *keys.ListKeyMap) list.Model {
 	ecrImageList := list.New([]list.Item{}, ItemDelegate{}, 0, 0)
-	ecrImageList.Title = ""
+	ecrImageList.SetShowTitle(false)
 	ecrImageList.SetShowStatusBar(false)
 	ecrImageList.SetFilteringEnabled(true)
 	setListStyle(&ecrImageList)
@@ -278,10 +274,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		h, v := styles.AppStyle.GetFrameSize()
 		m.width = msg.Width - h
 		m.height = msg.Height - v
+		msg.Height = m.height - 3
+		msg.Width = m.width
+
+		m.menuChoices.SetSize(msg.Width, msg.Height)
+
 		m.ec2Model, cmd = m.ec2Model.Update(msg)
 		m.ecsModel, cmd = m.ecsModel.Update(msg)
 		m.ecrModel, cmd = m.ecrModel.Update(msg)
-		m.menuChoices.SetSize(m.width-3, m.height-5)
 	case tea.KeyMsg:
 		switch m.state {
 		case stateMenu:
@@ -366,9 +366,8 @@ func (m Model) Header(items []string) string {
 		ret += styles.SubHeaderStyle.Render(h)
 	}
 	remainingWidth := m.width - lipgloss.Width(ret)
-	padding := styles.HeaderBarStyle.Width(remainingWidth).Render("")
+	padding := styles.HeaderBarStyle.Width(remainingWidth).Render("") + "\n\n"
 	return ret + padding
-
 }
 
 // View renders the TUI.
@@ -383,6 +382,7 @@ func (m Model) View() string {
 	case stateMenu:
 		s.WriteString(m.Header(nil))
 		s.WriteString(m.menuChoices.View())
+		status = "Status: Ready"
 	case stateEC2:
 		s.WriteString(m.Header(m.ec2Model.Header))
 		s.WriteString(m.ec2Model.View())
@@ -392,7 +392,7 @@ func (m Model) View() string {
 		} else if m.ec2Model.confirming {
 			status = m.ec2Model.status
 		} else {
-			status += fmt.Sprintf("Status: %s", m.ec2Model.status)
+			status = fmt.Sprintf("Status: %s", m.ec2Model.status)
 		}
 
 	case stateECS:
@@ -409,19 +409,18 @@ func (m Model) View() string {
 	case stateECR:
 		s.WriteString(m.Header(m.ecrModel.header))
 		s.WriteString(m.ecrModel.View())
-		var status string
 		if m.ecrModel.status != "Ready" && m.ecrModel.status != "Error" {
-			status += m.ecrModel.status
+			status = m.ecrModel.status
 			spinner = m.spinner.View()
 		} else {
-			status += fmt.Sprintf("Status: %s", m.ecrModel.status)
+			status = fmt.Sprintf("Status: %s", m.ecrModel.status)
 		}
 	}
 
 	st := m.statusStyle.Render(spinner) + m.statusStyle.Render(status)
 
 	remainingWidth := m.width - lipgloss.Width(st)
-	remainingHeight := m.height - (lipgloss.Height(s.String()) + 1)
+	remainingHeight := m.height - lipgloss.Height(s.String())
 	padding := m.statusStyle.Width(remainingWidth).Render("")
 
 	s.WriteString(lipgloss.NewStyle().Height(remainingHeight).Render(""))

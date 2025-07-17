@@ -46,12 +46,11 @@ func (m ecrModel) Update(msg tea.Msg) (ecrModel, tea.Cmd) {
 	var cmd tea.Cmd
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
-		h, v := styles.AppStyle.GetFrameSize()
-		m.repositoryList.SetSize(msg.Width-(h+3), msg.Height-(v+5))
-		m.imageList.SetSize(msg.Width-(3+h), msg.Height-(5+v))
+		m.repositoryList.SetSize(msg.Width, msg.Height)
+		m.imageList.SetSize(msg.Width, msg.Height)
 	case tea.KeyMsg:
 		switch {
-		case key.Matches(msg, key.NewBinding(key.WithKeys("backspace", "esc"), key.WithHelp("backspace/esc", "back"))):
+		case key.Matches(msg, key.NewBinding(key.WithKeys("esc"), key.WithHelp("esc", "back"))):
 			if m.state == ecrStateImageList {
 				m.state = ecrStateRepositoryList
 				m.status = "Ready"
@@ -174,9 +173,9 @@ func (m ecrModel) View() string {
 		}
 	case ecrStateImageList:
 		if len(m.imageList.Items()) == 0 && m.status == "Ready" {
-			s += styles.StatusStyle.Render("No ECR images found in this repository.\n")
+			s = styles.StatusStyle.Render("No ECR images found in this repository.\n")
 		} else {
-			s += m.imageList.View()
+			s = m.imageList.View()
 		}
 	}
 	return s
