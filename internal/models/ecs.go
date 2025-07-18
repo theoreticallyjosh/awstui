@@ -1,13 +1,15 @@
 package models
 
 import (
-	"awstui/internal/commands"
-	"awstui/internal/keys"
-	"awstui/internal/messages"
-	"awstui/internal/styles"
 	"fmt"
 	"strings"
 	"time"
+
+	"github.com/theoreticallyjosh/awstui/internal/styles"
+
+	"github.com/theoreticallyjosh/awstui/internal/commands"
+	"github.com/theoreticallyjosh/awstui/internal/keys"
+	"github.com/theoreticallyjosh/awstui/internal/messages"
 
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/service/cloudwatchlogs"

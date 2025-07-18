@@ -1,12 +1,13 @@
 package commands
 
 import (
-	"awstui/internal/messages"
 	"encoding/base64"
 	"fmt"
 	"os/exec"
 	"strings"
 	"time"
+
+	"github.com/theoreticallyjosh/awstui/internal/messages"
 
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/service/cloudwatchlogs"

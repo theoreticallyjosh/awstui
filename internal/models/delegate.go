@@ -1,9 +1,10 @@
 package models
 
 import (
-	"awstui/internal/styles"
 	"fmt"
 	"io"
+
+	"github.com/theoreticallyjosh/awstui/internal/styles"
 
 	"github.com/charmbracelet/bubbles/list"
 	tea "github.com/charmbracelet/bubbletea"

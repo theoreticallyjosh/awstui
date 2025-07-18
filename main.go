@@ -1,10 +1,11 @@
 package main
 
 import (
-	"awstui/internal/config"
-	"awstui/internal/models"
-	"awstui/internal/styles"
 	"log"
+
+	"github.com/theoreticallyjosh/awstui/internal/config"
+	"github.com/theoreticallyjosh/awstui/internal/models"
+	"github.com/theoreticallyjosh/awstui/internal/styles"
 
 	tea "github.com/charmbracelet/bubbletea"
 	tint "github.com/lrstanley/bubbletint"

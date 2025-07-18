@@ -1,9 +1,10 @@
 package models
 
 import (
-	"awstui/internal/utils"
 	"fmt"
 	"time"
+
+	"github.com/theoreticallyjosh/awstui/internal/utils"
 
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/service/ec2"
