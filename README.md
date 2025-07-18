@@ -10,12 +10,36 @@ A terminal user interface (TUI) for interacting with AWS services, built with Go
 - Interactive and responsive TUI experience.
 - Lightweight and fast.
 
+### EC2
+
+- [x] List instances
+- [x] View details
+- [x] Start instance
+- [x] Stop instance
+- [x] SSH into instance
+
+### ECS
+
+- [x] List clusters
+- [x] List services
+- [x] View service details
+- [x] Trigger service redeployment
+- [x] Stop service (scale to 0)
+- [ ] Scale service
+
+### ECR
+
+- [x] View private repositories
+- [x] View images
+- [x] Pull image
+- [x] Push image
+
 ## Installation
 
 To install `awstui`, make sure you have Go installed (version 1.16 or higher is recommended).
 
 ```bash
-go install github.com/jhagofsk/awstui@latest
+go install github.com/theoreticallyjosh/awstui@latest
 ```
 
 ## Configuration
@@ -51,7 +75,7 @@ awstui
 
 ## Screenshots
 
-_(Screenshots will be added here to showcase the TUI in action.)_
+![Demo](demo.gif "Demo")
 
 ## Contributing
 

@@ -1,4 +1,4 @@
-module awstui
+module github.com/theoreticallyjosh/awstui
 
 go 1.24.4
 
