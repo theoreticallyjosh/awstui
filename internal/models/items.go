@@ -10,6 +10,7 @@ import (
 	"github.com/aws/aws-sdk-go/service/ec2"
 	"github.com/aws/aws-sdk-go/service/ecr"
 	"github.com/aws/aws-sdk-go/service/ecs"
+	"github.com/aws/aws-sdk-go/service/sfn"
 	"github.com/charmbracelet/bubbles/list"
 )
 
@@ -128,4 +129,41 @@ func (i ecrImageItem) FilterValue() string {
 		return utils.ArrayToCSV(i.image.ImageTags)
 	}
 	return aws.StringValue(i.image.ImageDigest)
+}
+
+// SFN State Machine Item
+type sfnStateMachineItem struct {
+	stateMachine *sfn.StateMachineListItem
+}
+
+func (i sfnStateMachineItem) Title() string {
+	return aws.StringValue(i.stateMachine.Name)
+}
+
+func (i sfnStateMachineItem) Description() string {
+	return fmt.Sprintf("ARN: %s", aws.StringValue(i.stateMachine.StateMachineArn))
+}
+
+func (i sfnStateMachineItem) FilterValue() string {
+	return aws.StringValue(i.stateMachine.Name)
+}
+
+// SFN Execution Item
+type sfnExecutionItem struct {
+	execution *sfn.ExecutionListItem
+}
+
+func (i sfnExecutionItem) Title() string {
+	return aws.StringValue(i.execution.Name)
+}
+
+func (i sfnExecutionItem) Description() string {
+	return fmt.Sprintf("Status: %s | Started: %s",
+		aws.StringValue(i.execution.Status),
+		aws.TimeValue(i.execution.StartDate).Format(time.RFC822),
+	)
+}
+
+func (i sfnExecutionItem) FilterValue() string {
+	return aws.StringValue(i.execution.Name)
 }

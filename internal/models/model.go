@@ -14,6 +14,7 @@ import (
 	"github.com/aws/aws-sdk-go/service/ec2"
 	"github.com/aws/aws-sdk-go/service/ecr"
 	"github.com/aws/aws-sdk-go/service/ecs"
+	"github.com/aws/aws-sdk-go/service/sfn"
 	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/bubbles/list"
 	"github.com/charmbracelet/bubbles/paginator"
@@ -30,6 +31,7 @@ const (
 	stateEC2
 	stateECS
 	stateECR
+	stateSFN
 )
 
 // Model represents the state of our TUI application.
@@ -37,6 +39,7 @@ type Model struct {
 	ec2Model    ec2Model
 	ecsModel    ecsModel
 	ecrModel    ecrModel
+	sfnModel    sfnModel
 	spinner     spinner.Model
 	status      string
 	err         error
@@ -75,7 +78,7 @@ func newSpinner() spinner.Model {
 	return s
 }
 
-func newAWSClients() (*ec2.EC2, *ecs.ECS, *ecr.ECR, *cloudwatchlogs.CloudWatchLogs) {
+func newAWSClients() (*ec2.EC2, *ecs.ECS, *ecr.ECR, *cloudwatchlogs.CloudWatchLogs, *sfn.SFN) {
 	sess, err := session.NewSessionWithOptions(session.Options{
 		SharedConfigState: session.SharedConfigEnable,
 	})
@@ -88,7 +91,8 @@ func newAWSClients() (*ec2.EC2, *ecs.ECS, *ecr.ECR, *cloudwatchlogs.CloudWatchLo
 	ecsSvc := ecs.New(sess)
 	ecrSvc := ecr.New(sess)
 	cloudwatchlogsSvc := cloudwatchlogs.New(sess)
-	return ec2Svc, ecsSvc, ecrSvc, cloudwatchlogsSvc
+	sfnSvc := sfn.New(sess)
+	return ec2Svc, ecsSvc, ecrSvc, cloudwatchlogsSvc, sfnSvc
 }
 
 func newMainMenu(listkeys *keys.ListKeyMap) list.Model {
@@ -96,6 +100,7 @@ func newMainMenu(listkeys *keys.ListKeyMap) list.Model {
 		resourceItem{title: "EC2", desc: "Elastic Compute Cloud"},
 		resourceItem{title: "ECS", desc: "Elastic Container Service"},
 		resourceItem{title: "ECR", desc: "Elastic Container Registry"},
+		resourceItem{title: "Step Functions", desc: "Step Functions"},
 	}
 
 	mainList := list.New(items, ItemDelegate{}, 0, 0)
@@ -199,6 +204,37 @@ func newECRImageList(listkeys *keys.ListKeyMap) list.Model {
 	return ecrImageList
 }
 
+func newSFNList(listkeys *keys.ListKeyMap) list.Model {
+	sfnList := list.New([]list.Item{}, ItemDelegate{}, 0, 0)
+	sfnList.SetShowTitle(false)
+	sfnList.SetShowStatusBar(false)
+	sfnList.SetFilteringEnabled(true)
+	setListStyle(&sfnList)
+	sfnList.AdditionalFullHelpKeys = func() []key.Binding {
+		return []key.Binding{
+			listkeys.Choose,
+			listkeys.Refresh,
+		}
+	}
+	sfnList.AdditionalShortHelpKeys = sfnList.AdditionalFullHelpKeys
+	return sfnList
+}
+
+func newSFNExecutionList(listkeys *keys.ListKeyMap) list.Model {
+	sfnExecutionList := list.New([]list.Item{}, ItemDelegate{}, 0, 0)
+	sfnExecutionList.SetShowTitle(false)
+	sfnExecutionList.SetShowStatusBar(false)
+	sfnExecutionList.SetFilteringEnabled(true)
+	setListStyle(&sfnExecutionList)
+	sfnExecutionList.AdditionalFullHelpKeys = func() []key.Binding {
+		return []key.Binding{
+			listkeys.Refresh,
+		}
+	}
+	sfnExecutionList.AdditionalShortHelpKeys = sfnExecutionList.AdditionalFullHelpKeys
+	return sfnExecutionList
+}
+
 func newPaginator() paginator.Model {
 	pager := paginator.New()
 	pager.Type = paginator.Dots
@@ -208,7 +244,7 @@ func newPaginator() paginator.Model {
 }
 
 func NewModel() Model {
-	ec2Svc, ecsSvc, ecrSvc, cloudwatchlogsSvc := newAWSClients()
+	ec2Svc, ecsSvc, ecrSvc, cloudwatchlogsSvc, sfnSvc := newAWSClients()
 	s := newSpinner()
 	listkeys := keys.NewListKeyMap()
 	mainList := newMainMenu(listkeys)
@@ -217,6 +253,9 @@ func NewModel() Model {
 	ecsServiceList := newECSServiceList(listkeys)
 	ecrRepositoryList := newECRRepositoryList(listkeys)
 	ecrImageList := newECRImageList(listkeys)
+	sfnList := newSFNList(listkeys)
+	sfnExecutionList := newSFNExecutionList(listkeys)
+	sfnExecutionHistoryList := newSFNExecutionList(listkeys)
 	pager := newPaginator()
 
 	m := Model{
@@ -259,6 +298,17 @@ func NewModel() Model {
 		state:          ecrStateRepositoryList,
 	}
 
+	m.sfnModel = sfnModel{
+		parent:               &m,
+		sfnSvc:               sfnSvc,
+		status:               "Loading state machines...",
+		sfnList:              sfnList,
+		executionList:        sfnExecutionList,
+		executionHistoryList: sfnExecutionHistoryList,
+		keys:                 listkeys,
+		state:                sfnStateList,
+	}
+
 	return m
 }
 
@@ -283,6 +333,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.ec2Model, cmd = m.ec2Model.Update(msg)
 		m.ecsModel, cmd = m.ecsModel.Update(msg)
 		m.ecrModel, cmd = m.ecrModel.Update(msg)
+		m.sfnModel, cmd = m.sfnModel.Update(msg)
 	case tea.KeyMsg:
 		switch m.state {
 		case stateMenu:
@@ -299,12 +350,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				case "ECR":
 					m.state = stateECR
 					return m, m.ecrModel.Init()
+				case "Step Functions":
+					m.state = stateSFN
+					return m, m.sfnModel.Init()
 				}
 			}
 			m.menuChoices, cmd = m.menuChoices.Update(msg)
 
 			return m, cmd
-		case stateEC2, stateECS, stateECR:
+		case stateEC2, stateECS, stateECR, stateSFN:
 			if m.ec2Model.instanceList.FilterState() == list.Filtering || m.ecsModel.serviceList.FilterState() == list.Filtering || m.ecsModel.clusterList.FilterState() == list.Filtering || m.ecrModel.repositoryList.FilterState() == list.Filtering || m.ecrModel.imageList.FilterState() == list.Filtering {
 				break
 			}
@@ -349,6 +403,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.ecsModel, cmd = m.ecsModel.Update(msg)
 	case stateECR:
 		m.ecrModel, cmd = m.ecrModel.Update(msg)
+	case stateSFN:
+		m.sfnModel, cmd = m.sfnModel.Update(msg)
 	case stateMenu:
 		m.menuChoices, cmd = m.menuChoices.Update(msg)
 	}
@@ -415,6 +471,15 @@ func (m Model) View() string {
 			spinner = m.spinner.View()
 		} else {
 			status = fmt.Sprintf("Status: %s", m.ecrModel.status)
+		}
+	case stateSFN:
+		s.WriteString(m.Header(m.sfnModel.header))
+		s.WriteString(m.sfnModel.View())
+		if m.sfnModel.status != "Ready" && m.sfnModel.status != "Error" {
+			status = m.sfnModel.status
+			spinner = m.spinner.View()
+		} else {
+			status = fmt.Sprintf("Status: %s", m.sfnModel.status)
 		}
 	}
 

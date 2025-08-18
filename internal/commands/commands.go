@@ -14,6 +14,7 @@ import (
 	"github.com/aws/aws-sdk-go/service/ec2"
 	"github.com/aws/aws-sdk-go/service/ecr"
 	"github.com/aws/aws-sdk-go/service/ecs"
+	"github.com/aws/aws-sdk-go/service/sfn"
 	tea "github.com/charmbracelet/bubbletea"
 )
 
@@ -352,4 +353,42 @@ func SshIntoInstanceCmd(publicIP string, keyName string) tea.Cmd {
 	return tea.ExecProcess(exec.Command("ssh", "-i", "~/.ssh/"+keyName+".pem", "ec2-user@"+publicIP), func(err error) tea.Msg {
 		return messages.SshExitMsg{Err: err}
 	})
+}
+
+// FetchSFNStateMachinesCmd fetches Step Functions state machines from AWS.
+func FetchSFNStateMachinesCmd(svc *sfn.SFN) tea.Cmd {
+	return func() tea.Msg {
+		result, err := svc.ListStateMachines(&sfn.ListStateMachinesInput{})
+		if err != nil {
+			return messages.ErrMsg(fmt.Errorf("failed to list state machines: %w", err))
+		}
+		return messages.SfnStateMachinesFetchedMsg(result.StateMachines)
+	}
+}
+
+// FetchSFNExecutionsCmd fetches executions for a Step Functions state machine from AWS.
+func FetchSFNExecutionsCmd(svc *sfn.SFN, stateMachineArn *string) tea.Cmd {
+	return func() tea.Msg {
+		result, err := svc.ListExecutions(&sfn.ListExecutionsInput{
+			StateMachineArn: stateMachineArn,
+		})
+		if err != nil {
+			return messages.ErrMsg(fmt.Errorf("failed to list executions: %w", err))
+		}
+		return messages.SfnExecutionsFetchedMsg(result.Executions)
+	}
+}
+
+// FetchSFNExecutionHistoryCmd fetches the history of a Step Functions execution from AWS.
+func FetchSFNExecutionHistoryCmd(svc *sfn.SFN, executionArn *string) tea.Cmd {
+	return func() tea.Msg {
+		result, err := svc.GetExecutionHistory(&sfn.GetExecutionHistoryInput{
+			ExecutionArn: executionArn,
+			MaxResults:   aws.Int64(1000), // Fetch up to 100 events
+		})
+		if err != nil {
+			return messages.ErrMsg(fmt.Errorf("failed to get execution history: %w", err))
+		}
+		return messages.SfnExecutionHistoryFetchedMsg(result.Events)
+	}
 }

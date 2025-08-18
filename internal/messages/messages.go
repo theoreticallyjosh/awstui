@@ -2,8 +2,9 @@ package messages
 
 import (
 	"github.com/aws/aws-sdk-go/service/ec2"
-	"github.com/aws/aws-sdk-go/service/ecs"
 	"github.com/aws/aws-sdk-go/service/ecr"
+	"github.com/aws/aws-sdk-go/service/ecs"
+	"github.com/aws/aws-sdk-go/service/sfn"
 )
 
 // messages are used to pass data between commands and the Update function.
@@ -17,7 +18,10 @@ type (
 	EcsServiceDetailsMsg     *ecs.Service
 	EcsServiceActionMsg      string
 	EcsServiceLogsFetchedMsg string
-	InstanceActionMsg        string
+	SfnStateMachinesFetchedMsg []*sfn.StateMachineListItem
+	SfnExecutionsFetchedMsg    []*sfn.ExecutionListItem
+	SfnExecutionHistoryFetchedMsg []*sfn.HistoryEvent
+	InstanceActionMsg          string
 	InstanceDetailsMsg       *ec2.Instance
 	SshExitMsg               struct{ Err error }
 	ErrMsg                   error
