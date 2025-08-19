@@ -10,6 +10,7 @@ import (
 	"github.com/theoreticallyjosh/awstui/internal/styles"
 
 	"github.com/aws/aws-sdk-go/aws/session"
+	"github.com/aws/aws-sdk-go/service/batch"
 	"github.com/aws/aws-sdk-go/service/cloudwatchlogs"
 	"github.com/aws/aws-sdk-go/service/ec2"
 	"github.com/aws/aws-sdk-go/service/ecr"
@@ -32,6 +33,7 @@ const (
 	stateECS
 	stateECR
 	stateSFN
+	stateBatch
 )
 
 // Model represents the state of our TUI application.
@@ -40,6 +42,7 @@ type Model struct {
 	ecsModel    ecsModel
 	ecrModel    ecrModel
 	sfnModel    sfnModel
+	batchModel  batchModel
 	spinner     spinner.Model
 	status      string
 	err         error
@@ -78,7 +81,7 @@ func newSpinner() spinner.Model {
 	return s
 }
 
-func newAWSClients() (*ec2.EC2, *ecs.ECS, *ecr.ECR, *cloudwatchlogs.CloudWatchLogs, *sfn.SFN) {
+func newAWSClients() (*ec2.EC2, *ecs.ECS, *ecr.ECR, *cloudwatchlogs.CloudWatchLogs, *sfn.SFN, *batch.Batch) {
 	sess, err := session.NewSessionWithOptions(session.Options{
 		SharedConfigState: session.SharedConfigEnable,
 	})
@@ -92,7 +95,8 @@ func newAWSClients() (*ec2.EC2, *ecs.ECS, *ecr.ECR, *cloudwatchlogs.CloudWatchLo
 	ecrSvc := ecr.New(sess)
 	cloudwatchlogsSvc := cloudwatchlogs.New(sess)
 	sfnSvc := sfn.New(sess)
-	return ec2Svc, ecsSvc, ecrSvc, cloudwatchlogsSvc, sfnSvc
+	batchSvc := batch.New(sess)
+	return ec2Svc, ecsSvc, ecrSvc, cloudwatchlogsSvc, sfnSvc, batchSvc
 }
 
 func newMainMenu(listkeys *keys.ListKeyMap) list.Model {
@@ -101,6 +105,7 @@ func newMainMenu(listkeys *keys.ListKeyMap) list.Model {
 		resourceItem{title: "ECS", desc: "Elastic Container Service"},
 		resourceItem{title: "ECR", desc: "Elastic Container Registry"},
 		resourceItem{title: "Step Functions", desc: "Step Functions"},
+		resourceItem{title: "Batch", desc: "Batch Jobs"},
 	}
 
 	mainList := list.New(items, ItemDelegate{}, 0, 0)
@@ -235,6 +240,40 @@ func newSFNExecutionList(listkeys *keys.ListKeyMap) list.Model {
 	return sfnExecutionList
 }
 
+func newBatchJobQueueList(listkeys *keys.ListKeyMap) list.Model {
+	batchJobQueueList := list.New([]list.Item{}, ItemDelegate{}, 0, 0)
+	batchJobQueueList.SetShowTitle(false)
+	batchJobQueueList.SetShowStatusBar(false)
+	batchJobQueueList.SetFilteringEnabled(true)
+	setListStyle(&batchJobQueueList)
+	batchJobQueueList.AdditionalFullHelpKeys = func() []key.Binding {
+		return []key.Binding{
+			listkeys.Choose,
+			listkeys.Refresh,
+		}
+	}
+	batchJobQueueList.AdditionalShortHelpKeys = batchJobQueueList.AdditionalFullHelpKeys
+	return batchJobQueueList
+}
+
+func newBatchJobList(listkeys *keys.ListKeyMap) list.Model {
+	batchJobList := list.New([]list.Item{}, ItemDelegate{}, 0, 0)
+	batchJobList.SetShowTitle(false)
+	batchJobList.SetShowStatusBar(false)
+	batchJobList.SetFilteringEnabled(true)
+	setListStyle(&batchJobList)
+	batchJobList.AdditionalFullHelpKeys = func() []key.Binding {
+		return []key.Binding{
+			listkeys.Details,
+			listkeys.Stop,
+			listkeys.Refresh,
+			listkeys.Logs,
+		}
+	}
+	batchJobList.AdditionalShortHelpKeys = batchJobList.AdditionalFullHelpKeys
+	return batchJobList
+}
+
 func newPaginator() paginator.Model {
 	pager := paginator.New()
 	pager.Type = paginator.Dots
@@ -244,7 +283,7 @@ func newPaginator() paginator.Model {
 }
 
 func NewModel() Model {
-	ec2Svc, ecsSvc, ecrSvc, cloudwatchlogsSvc, sfnSvc := newAWSClients()
+	ec2Svc, ecsSvc, ecrSvc, cloudwatchlogsSvc, sfnSvc, batchSvc := newAWSClients()
 	s := newSpinner()
 	listkeys := keys.NewListKeyMap()
 	mainList := newMainMenu(listkeys)
@@ -256,6 +295,8 @@ func NewModel() Model {
 	sfnList := newSFNList(listkeys)
 	sfnExecutionList := newSFNExecutionList(listkeys)
 	sfnExecutionHistoryList := newSFNExecutionList(listkeys)
+	batchJobQueueList := newBatchJobQueueList(listkeys)
+	batchJobList := newBatchJobList(listkeys)
 	pager := newPaginator()
 
 	m := Model{
@@ -309,6 +350,18 @@ func NewModel() Model {
 		state:                sfnStateList,
 	}
 
+	m.batchModel = batchModel{
+		parent:            &m,
+		batchSvc:          batchSvc,
+		status:            "Loading job queues...",
+		cloudwatchlogsSvc: cloudwatchlogsSvc,
+		jobQueueList:      batchJobQueueList,
+		jobList:           batchJobList,
+		paginator:         pager,
+		keys:              listkeys,
+		state:             batchStateJobQueueList,
+	}
+
 	return m
 }
 
@@ -334,6 +387,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.ecsModel, cmd = m.ecsModel.Update(msg)
 		m.ecrModel, cmd = m.ecrModel.Update(msg)
 		m.sfnModel, cmd = m.sfnModel.Update(msg)
+		m.batchModel, cmd = m.batchModel.Update(msg)
 	case tea.KeyMsg:
 		switch m.state {
 		case stateMenu:
@@ -353,12 +407,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				case "Step Functions":
 					m.state = stateSFN
 					return m, m.sfnModel.Init()
+				case "Batch":
+					m.state = stateBatch
+					return m, m.batchModel.Init()
 				}
 			}
 			m.menuChoices, cmd = m.menuChoices.Update(msg)
 
 			return m, cmd
-		case stateEC2, stateECS, stateECR, stateSFN:
+		case stateEC2, stateECS, stateECR, stateSFN, stateBatch:
 			if m.ec2Model.instanceList.FilterState() == list.Filtering || m.ecsModel.serviceList.FilterState() == list.Filtering || m.ecsModel.clusterList.FilterState() == list.Filtering || m.ecrModel.repositoryList.FilterState() == list.Filtering || m.ecrModel.imageList.FilterState() == list.Filtering {
 				break
 			}
@@ -378,6 +435,18 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				if m.state == stateECR {
 					if m.ecrModel.state != ecrStateRepositoryList {
 						m.ecrModel, cmd = m.ecrModel.Update(msg)
+						return m, cmd
+					}
+				}
+				if m.state == stateBatch {
+					if m.batchModel.state != batchStateJobQueueList {
+						m.batchModel, cmd = m.batchModel.Update(msg)
+						return m, cmd
+					}
+				}
+				if m.state == stateSFN {
+					if m.sfnModel.state != sfnStateList {
+						m.sfnModel, cmd = m.sfnModel.Update(msg)
 						return m, cmd
 					}
 				}
@@ -405,6 +474,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.ecrModel, cmd = m.ecrModel.Update(msg)
 	case stateSFN:
 		m.sfnModel, cmd = m.sfnModel.Update(msg)
+	case stateBatch:
+		m.batchModel, cmd = m.batchModel.Update(msg)
 	case stateMenu:
 		m.menuChoices, cmd = m.menuChoices.Update(msg)
 	}
@@ -480,6 +551,15 @@ func (m Model) View() string {
 			spinner = m.spinner.View()
 		} else {
 			status = fmt.Sprintf("Status: %s", m.sfnModel.status)
+		}
+	case stateBatch:
+		s.WriteString(m.Header(m.batchModel.header))
+		s.WriteString(m.batchModel.View())
+		if m.batchModel.status != "Ready" && m.batchModel.status != "Error" {
+			status = m.batchModel.status
+			spinner = m.spinner.View()
+		} else {
+			status = fmt.Sprintf("Status: %s", m.batchModel.status)
 		}
 	}
 

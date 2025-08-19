@@ -4,12 +4,15 @@ import (
 	"encoding/base64"
 	"fmt"
 	"os/exec"
+	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/theoreticallyjosh/awstui/internal/messages"
 
 	"github.com/aws/aws-sdk-go/aws"
+	"github.com/aws/aws-sdk-go/service/batch"
 	"github.com/aws/aws-sdk-go/service/cloudwatchlogs"
 	"github.com/aws/aws-sdk-go/service/ec2"
 	"github.com/aws/aws-sdk-go/service/ecr"
@@ -390,5 +393,158 @@ func FetchSFNExecutionHistoryCmd(svc *sfn.SFN, executionArn *string) tea.Cmd {
 			return messages.ErrMsg(fmt.Errorf("failed to get execution history: %w", err))
 		}
 		return messages.SfnExecutionHistoryFetchedMsg(result.Events)
+	}
+}
+
+// FetchBatchJobQueuesCmd fetches Batch job queues from AWS.
+func FetchBatchJobQueuesCmd(svc *batch.Batch) tea.Cmd {
+	return func() tea.Msg {
+		result, err := svc.DescribeJobQueues(&batch.DescribeJobQueuesInput{})
+		if err != nil {
+			return messages.ErrMsg(fmt.Errorf("failed to describe Batch job queues: %w", err))
+		}
+		return messages.BatchJobQueuesFetchedMsg(result.JobQueues)
+	}
+}
+
+// FetchBatchJobsCmd fetches Batch jobs from a specific job queue for all statuses.
+func FetchBatchJobsCmd(svc *batch.Batch, jobQueue *string) tea.Cmd {
+	return func() tea.Msg {
+		statuses := []string{
+			"SUBMITTED",
+			"PENDING",
+			"RUNNABLE",
+			"STARTING",
+			"RUNNING",
+			"SUCCEEDED",
+			"FAILED",
+		}
+
+		var jobs []*batch.JobSummary
+		var errs []error
+		var wg sync.WaitGroup
+		var mu sync.Mutex
+
+		for _, status := range statuses {
+			wg.Add(1)
+			go func(status string) {
+				defer wg.Done()
+				result, err := svc.ListJobs(&batch.ListJobsInput{
+					JobQueue:  jobQueue,
+					JobStatus: aws.String(status),
+				})
+				mu.Lock()
+				defer mu.Unlock()
+				if err != nil {
+					errs = append(errs, err)
+					return
+				}
+				jobs = append(jobs, result.JobSummaryList...)
+			}(status)
+		}
+
+		wg.Wait()
+
+		if len(errs) > 0 {
+			// For now, just return the first error.
+			return messages.ErrMsg(fmt.Errorf("failed to list Batch jobs: %w", errs[0]))
+		}
+
+		sort.Slice(jobs, func(i, j int) bool {
+			if jobs[i].CreatedAt == nil || jobs[j].CreatedAt == nil {
+				return false
+			}
+			return *jobs[i].CreatedAt > *jobs[j].CreatedAt // descending
+		})
+
+		return messages.BatchJobsFetchedMsg(jobs)
+	}
+}
+
+// FetchBatchJobDetailsCmd fetches details for a specific Batch job.
+func FetchBatchJobDetailsCmd(svc *batch.Batch, jobID *string) tea.Cmd {
+	return func() tea.Msg {
+		result, err := svc.DescribeJobs(&batch.DescribeJobsInput{
+			Jobs: []*string{jobID},
+		})
+		if err != nil {
+			return messages.ErrMsg(fmt.Errorf("failed to describe Batch job %s: %w", *jobID, err))
+		}
+		if len(result.Jobs) > 0 {
+			return messages.BatchJobDetailsMsg(result.Jobs[0])
+		}
+		return messages.ErrMsg(fmt.Errorf("Batch job %s not found", *jobID))
+	}
+}
+
+// StopBatchJobCmd stops a specific Batch job.
+func StopBatchJobCmd(svc *batch.Batch, jobID *string, reason *string) tea.Cmd {
+	return func() tea.Msg {
+		_, err := svc.TerminateJob(&batch.TerminateJobInput{
+			JobId:  jobID,
+			Reason: reason,
+		})
+		if err != nil {
+			return messages.ErrMsg(fmt.Errorf("failed to stop Batch job %s: %w", *jobID, err))
+		}
+		time.Sleep(2 * time.Second)
+		return messages.BatchJobActionMsg("stopped")
+	}
+}
+
+// FetchBatchJobLogsCmd fetches logs for a specific Batch job from CloudWatch Logs.
+func FetchBatchJobLogsCmd(svc *cloudwatchlogs.CloudWatchLogs, logStreamName *string) tea.Cmd {
+	return func() tea.Msg {
+		var allLogs strings.Builder
+		// The log group for AWS Batch jobs is typically this, but you can
+		// make this configurable if needed.
+		logGroupName := "/aws/batch/job"
+
+		// We will use a token to paginate through the results.
+		var nextToken *string
+
+		// The loop will continue as long as a nextToken is present.
+		// The initial request will have a nil nextToken, so we handle it
+		// by starting the loop and breaking when the token is nil.
+		for {
+			getEventsInput := &cloudwatchlogs.GetLogEventsInput{
+				LogGroupName:  aws.String(logGroupName),
+				LogStreamName: logStreamName,
+				NextToken:     nextToken,
+				StartFromHead: aws.Bool(true),
+			}
+
+			eventsResult, err := svc.GetLogEvents(getEventsInput)
+			if err != nil {
+				return messages.ErrMsg(fmt.Errorf("failed to get log events for stream %s: %w", *logStreamName, err))
+			}
+
+			// Append the new events to the log builder.
+			if len(eventsResult.Events) > 0 {
+				for _, event := range eventsResult.Events {
+					allLogs.WriteString(fmt.Sprintf("[%s] %s\n", time.UnixMilli(aws.Int64Value(event.Timestamp)).Format("15:04:05"), aws.StringValue(event.Message)))
+				}
+			}
+
+			// Check for the next token to continue pagination.
+			// The API returns both NextForwardToken and NextBackwardToken.
+			// We use NextForwardToken to paginate forward in time.
+			if eventsResult.NextForwardToken == nil || (nextToken != nil && *eventsResult.NextForwardToken == *nextToken) {
+				// We've reached the end of the log stream or we're in an infinite loop
+				// (the token hasn't changed), so we break.
+				break
+			}
+			nextToken = eventsResult.NextForwardToken
+		}
+
+		if allLogs.Len() == 0 {
+			return messages.BatchJobLogsFetchedMsg("No logs found for this job.")
+		}
+
+		// Prepend a header to the full log output.
+		finalLogs := fmt.Sprintf("--- Log Stream: %s ---\n", aws.StringValue(logStreamName)) + allLogs.String()
+		finalLogs += "\n"
+
+		return messages.BatchJobLogsFetchedMsg(finalLogs)
 	}
 }
