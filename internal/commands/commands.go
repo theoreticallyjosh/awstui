@@ -396,6 +396,20 @@ func FetchSFNExecutionHistoryCmd(svc *sfn.SFN, executionArn *string) tea.Cmd {
 	}
 }
 
+// StartSFNExecutionCmd starts a new execution for a Step Functions state machine.
+func StartSFNExecutionCmd(svc *sfn.SFN, stateMachineArn *string, input *string) tea.Cmd {
+	return func() tea.Msg {
+		_, err := svc.StartExecution(&sfn.StartExecutionInput{
+			StateMachineArn: stateMachineArn,
+			Input:           input,
+		})
+		if err != nil {
+			return messages.ErrMsg(fmt.Errorf("failed to start execution: %w", err))
+		}
+		return messages.SfnExecutionStartedMsg("Execution started successfully")
+	}
+}
+
 // FetchBatchJobQueuesCmd fetches Batch job queues from AWS.
 func FetchBatchJobQueuesCmd(svc *batch.Batch) tea.Cmd {
 	return func() tea.Msg {

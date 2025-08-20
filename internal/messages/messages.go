@@ -27,6 +27,7 @@ type (
 	SfnStateMachinesFetchedMsg    []*sfn.StateMachineListItem
 	SfnExecutionsFetchedMsg       []*sfn.ExecutionListItem
 	SfnExecutionHistoryFetchedMsg []*sfn.HistoryEvent
+	SfnExecutionStartedMsg        string
 
 	BatchJobQueuesFetchedMsg []*batch.JobQueueDetail
 	BatchJobsFetchedMsg      []*batch.JobSummary

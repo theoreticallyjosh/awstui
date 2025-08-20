@@ -13,6 +13,7 @@ import (
 	"github.com/aws/aws-sdk-go/service/sfn"
 	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/bubbles/list"
+	"github.com/charmbracelet/bubbles/textarea"
 	tea "github.com/charmbracelet/bubbletea"
 )
 
@@ -22,6 +23,7 @@ const (
 	sfnStateList sfnState = iota
 	sfnStateExecutions
 	sfnStateExecutionDetails
+	sfnStateStartExecution
 )
 
 type sfnModel struct {
@@ -30,6 +32,7 @@ type sfnModel struct {
 	sfnList              list.Model
 	executionList        list.Model
 	executionHistoryList list.Model
+	inputArea            textarea.Model
 	status               string
 	err                  error
 	keys                 *keys.ListKeyMap
@@ -60,6 +63,12 @@ func (m sfnModel) Update(msg tea.Msg) (sfnModel, tea.Cmd) {
 				m.err = nil
 				m.executionList.SetItems([]list.Item{})
 				return m, nil
+			} else if m.state == sfnStateStartExecution {
+				m.state = sfnStateExecutions
+				m.status = "Ready"
+				m.err = nil
+				m.inputArea.Reset()
+				return m, nil
 			} else {
 				m.state = sfnStateExecutions
 				m.status = "Ready"
@@ -85,6 +94,13 @@ func (m sfnModel) Update(msg tea.Msg) (sfnModel, tea.Cmd) {
 					m.status = fmt.Sprintf("Loading executions for %s...", aws.StringValue(selectedItem.stateMachine.Name))
 					return m, tea.Batch(m.parent.spinner.Tick, commands.FetchSFNExecutionsCmd(m.sfnSvc, selectedItem.stateMachine.StateMachineArn))
 				}
+			case key.Matches(msg, m.keys.StartExecution):
+				selectedItem := m.sfnList.SelectedItem().(sfnStateMachineItem)
+				m.selectedStateMachine = selectedItem.stateMachine
+				m.state = sfnStateStartExecution
+				m.status = "Enter execution input (JSON)"
+				m.inputArea.Focus()
+				return m, nil
 			}
 		case sfnStateExecutions:
 			if m.executionList.FilterState() == list.Filtering {
@@ -113,6 +129,12 @@ func (m sfnModel) Update(msg tea.Msg) (sfnModel, tea.Cmd) {
 				m.status = styles.StatusStyle.Render("Refreshing execution history...")
 				m.err = nil
 				return m, tea.Batch(m.parent.spinner.Tick, commands.FetchSFNExecutionHistoryCmd(m.sfnSvc, m.selectedExecution.ExecutionArn))
+			}
+		case sfnStateStartExecution:
+			if key.Matches(msg, m.keys.Choose) {
+				input := m.inputArea.Value()
+				m.status = "Starting execution..."
+				return m, commands.StartSFNExecutionCmd(m.sfnSvc, m.selectedStateMachine.StateMachineArn, &input)
 			}
 		}
 	case messages.SfnStateMachinesFetchedMsg:
@@ -152,6 +174,11 @@ func (m sfnModel) Update(msg tea.Msg) (sfnModel, tea.Cmd) {
 		m.status = "Ready"
 		m.err = nil
 		return m, nil
+	case messages.SfnExecutionStartedMsg:
+		m.state = sfnStateExecutions
+		m.status = "Execution started successfully"
+		m.inputArea.Reset()
+		return m, tea.Batch(m.parent.spinner.Tick, commands.FetchSFNExecutionsCmd(m.sfnSvc, m.selectedStateMachine.StateMachineArn))
 	case messages.ErrMsg:
 		m.err = msg
 		m.status = "Error"
@@ -165,6 +192,8 @@ func (m sfnModel) Update(msg tea.Msg) (sfnModel, tea.Cmd) {
 	} else if m.state == sfnStateExecutionDetails {
 		m.header = append(m.header, aws.StringValue(m.selectedStateMachine.Name), "Executions", aws.StringValue(m.selectedExecution.Name), "History")
 		m.executionHistoryList, cmd = m.executionHistoryList.Update(msg)
+	} else if m.state == sfnStateStartExecution {
+		m.inputArea, cmd = m.inputArea.Update(msg)
 	}
 	return m, cmd
 }
@@ -190,6 +219,13 @@ func (m sfnModel) View() string {
 		} else {
 			s = m.executionHistoryList.View()
 		}
+	case sfnStateStartExecution:
+		s = fmt.Sprintf(
+			"Enter input for %s\n\n%s\n\n%s",
+			aws.StringValue(m.selectedStateMachine.Name),
+			m.inputArea.View(),
+			"(Press Enter to submit, Esc to cancel)",
+		)
 	}
 
 	return s
@@ -250,7 +286,6 @@ func GetStateName(event *sfn.HistoryEvent, events messages.SfnExecutionHistoryFe
 		return walkBackToStateEntered(event, eventsMap)
 	}
 
-	return ""
 }
 
 // walkBackToStateEntered scans backward in the event list until it finds the latest TaskStateEntered

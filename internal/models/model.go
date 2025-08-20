@@ -20,6 +20,7 @@ import (
 	"github.com/charmbracelet/bubbles/list"
 	"github.com/charmbracelet/bubbles/paginator"
 	"github.com/charmbracelet/bubbles/spinner"
+	"github.com/charmbracelet/bubbles/textarea"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 )
@@ -219,6 +220,7 @@ func newSFNList(listkeys *keys.ListKeyMap) list.Model {
 		return []key.Binding{
 			listkeys.Choose,
 			listkeys.Refresh,
+			listkeys.StartExecution,
 		}
 	}
 	sfnList.AdditionalShortHelpKeys = sfnList.AdditionalFullHelpKeys
@@ -348,6 +350,7 @@ func NewModel() Model {
 		executionHistoryList: sfnExecutionHistoryList,
 		keys:                 listkeys,
 		state:                sfnStateList,
+		inputArea:            textarea.New(),
 	}
 
 	m.batchModel = batchModel{

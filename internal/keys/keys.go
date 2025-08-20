@@ -13,6 +13,7 @@ type ListKeyMap struct {
 	Pull        key.Binding
 	Push        key.Binding
 	Choose      key.Binding
+	StartExecution key.Binding
 }
 
 func NewListKeyMap() *ListKeyMap {
@@ -56,6 +57,10 @@ func NewListKeyMap() *ListKeyMap {
 		Choose: key.NewBinding(
 			key.WithKeys("enter"),
 			key.WithHelp("enter", "choose"),
+		),
+		StartExecution: key.NewBinding(
+			key.WithKeys("e"),
+			key.WithHelp("e", "execute"),
 		),
 	}
 }
