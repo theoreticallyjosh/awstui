@@ -35,6 +35,20 @@ A terminal user interface (TUI) for interacting with AWS services, built with Go
 - [x] Pull image
 - [x] Push image
 
+### Step Functions
+
+- [x] View
+- [ ] Start New Execution
+- [x] View Executions
+- [x] View Execution Steps
+
+### Batch
+
+- [x] View Queues
+- [x] View Batch Jobs
+- [x] View Batch Job Logs
+- [ ] Execute Batch Jobs
+
 ## Installation
 
 To install `awstui`, make sure you have Go installed (version 1.16 or higher is recommended).
