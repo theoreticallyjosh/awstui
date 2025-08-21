@@ -235,6 +235,22 @@ func newSFNExecutionList(listkeys *keys.ListKeyMap) list.Model {
 	setListStyle(&sfnExecutionList)
 	sfnExecutionList.AdditionalFullHelpKeys = func() []key.Binding {
 		return []key.Binding{
+			listkeys.Choose,
+			listkeys.Refresh,
+		}
+	}
+	sfnExecutionList.AdditionalShortHelpKeys = sfnExecutionList.AdditionalFullHelpKeys
+	return sfnExecutionList
+}
+
+func newSFNExecutionHistoryList(listkeys *keys.ListKeyMap) list.Model {
+	sfnExecutionList := list.New([]list.Item{}, ItemDelegate{}, 0, 0)
+	sfnExecutionList.SetShowTitle(false)
+	sfnExecutionList.SetShowStatusBar(false)
+	sfnExecutionList.SetFilteringEnabled(true)
+	setListStyle(&sfnExecutionList)
+	sfnExecutionList.AdditionalFullHelpKeys = func() []key.Binding {
+		return []key.Binding{
 			listkeys.Refresh,
 		}
 	}
@@ -296,7 +312,7 @@ func NewModel() Model {
 	ecrImageList := newECRImageList(listkeys)
 	sfnList := newSFNList(listkeys)
 	sfnExecutionList := newSFNExecutionList(listkeys)
-	sfnExecutionHistoryList := newSFNExecutionList(listkeys)
+	sfnExecutionHistoryList := newSFNExecutionHistoryList(listkeys)
 	batchJobQueueList := newBatchJobQueueList(listkeys)
 	batchJobList := newBatchJobList(listkeys)
 	pager := newPaginator()

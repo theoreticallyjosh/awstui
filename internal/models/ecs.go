@@ -148,7 +148,7 @@ func (m ecsModel) Update(msg tea.Msg) (ecsModel, tea.Cmd) {
 					selectedItem := m.serviceList.SelectedItem().(ecsServiceItem)
 					m.detailService = selectedItem.service
 					m.state = ecsStateServiceDetails
-					m.status = "Showing service details."
+					m.status = "Ready"
 					m.err = nil
 				}
 			case key.Matches(msg, m.keys.Stop):
@@ -278,8 +278,7 @@ func (m ecsModel) View() string {
 					fmt.Sprintf("Launch Type:   %s\n", aws.StringValue(m.detailService.LaunchType))+
 					fmt.Sprintf("Task Definition: %s\n", aws.StringValue(m.detailService.TaskDefinition))+
 					fmt.Sprintf("Created At:    %s\n", aws.TimeValue(m.detailService.CreatedAt).Format(time.RFC822))+
-					"\nPress 'esc' or 'backspace' to go back."+
-					"\n"+styles.StatusStyle.Render(fmt.Sprintf("Status: %s", m.status)),
+					"\nPress 'esc' or 'backspace' to go back.",
 			)
 		} else {
 			s = styles.StatusStyle.Render("No service details available.\n")
