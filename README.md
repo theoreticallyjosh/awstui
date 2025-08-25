@@ -38,7 +38,7 @@ A terminal user interface (TUI) for interacting with AWS services, built with Go
 ### Step Functions
 
 - [x] View
-- [ ] Start New Execution
+- [x] Start New Execution
 - [x] View Executions
 - [x] View Execution Steps
 
