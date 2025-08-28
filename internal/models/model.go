@@ -21,6 +21,7 @@ import (
 	"github.com/charmbracelet/bubbles/paginator"
 	"github.com/charmbracelet/bubbles/spinner"
 	"github.com/charmbracelet/bubbles/textarea"
+	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 )
@@ -304,6 +305,11 @@ func NewModel() Model {
 		keys:         listkeys,
 	}
 
+	scaleInput := textinput.New()
+	scaleInput.Placeholder = "Enter desired count"
+	scaleInput.CharLimit = 10
+	scaleInput.Width = 20
+
 	m.ecsModel = ecsModel{
 		parent:            &m,
 		ecsSvc:            ecsSvc,
@@ -311,6 +317,7 @@ func NewModel() Model {
 		cloudwatchlogsSvc: cloudwatchlogsSvc,
 		clusterList:       ecsClusterList,
 		serviceList:       ecsServiceList,
+		scaleInput:        scaleInput,
 		paginator:         pager,
 		keys:              listkeys,
 		state:             ecsStateClusterList,

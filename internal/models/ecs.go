@@ -2,6 +2,7 @@ package models
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
@@ -17,6 +18,7 @@ import (
 	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/bubbles/list"
 	"github.com/charmbracelet/bubbles/paginator"
+	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 )
 
@@ -27,6 +29,7 @@ const (
 	ecsStateServiceList
 	ecsStateServiceDetails
 	ecsStateServiceConfirmAction
+	ecsStateServiceScaleInput
 	ecsStateServiceLogs
 )
 
@@ -44,6 +47,7 @@ type ecsModel struct {
 	detailService           *ecs.Service
 	ecsServiceActionService *ecs.Service
 	serviceLogs             string
+	scaleInput              textinput.Model
 	keys                    *keys.ListKeyMap
 	paginator               paginator.Model
 	state                   ecsState
@@ -74,6 +78,8 @@ func (m ecsModel) Update(msg tea.Msg) (ecsModel, tea.Cmd) {
 			return m.updateClusterList(msg)
 		case ecsStateServiceList:
 			return m.updateServiceList(msg)
+		case ecsStateServiceScaleInput:
+			return m.updateServiceScaleInput(msg)
 		case ecsStateServiceDetails:
 			// No key handling in these states for now
 		case ecsStateServiceLogs:
@@ -88,6 +94,8 @@ func (m ecsModel) Update(msg tea.Msg) (ecsModel, tea.Cmd) {
 		return m.handleServiceDetails(msg)
 	case messages.EcsServiceActionMsg:
 		return m.handleServiceAction(msg)
+	case messages.EcsServiceScaledMsg:
+		return m.handleServiceScaled(msg)
 	case messages.EcsServiceLogsFetchedMsg:
 		return m.handleServiceLogsFetched(msg)
 	case messages.ErrMsg:
@@ -124,6 +132,9 @@ func (m *ecsModel) handleEscKey(msg tea.KeyMsg) bool {
 		case ecsStateServiceConfirmAction:
 			m.resetConfirmAction()
 			return true
+		case ecsStateServiceScaleInput:
+			m.resetScaleInput()
+			return true
 		case ecsStateServiceLogs:
 			m.resetToServiceList()
 			return true
@@ -143,6 +154,14 @@ func (m *ecsModel) resetConfirmAction() {
 	m.state = ecsStateServiceList
 	m.confirming = false
 	m.action = ""
+	m.ecsServiceActionService = nil
+	m.status = "Ready"
+}
+
+func (m *ecsModel) resetScaleInput() {
+	m.state = ecsStateServiceList
+	m.scaleInput.SetValue("")
+	m.scaleInput.Blur()
 	m.ecsServiceActionService = nil
 	m.status = "Ready"
 }
@@ -173,6 +192,9 @@ func (m ecsModel) executeServiceAction() (ecsModel, tea.Cmd) {
 		return m, tea.Batch(m.parent.spinner.Tick, commands.StopECSServiceCmd(m.ecsSvc, aws.StringValue(m.detailCluster.ClusterArn), aws.StringValue(m.ecsServiceActionService.ServiceArn)))
 	} else if m.action == "force-deploy" {
 		return m, tea.Batch(m.parent.spinner.Tick, commands.ForceDeployECSServiceCmd(m.ecsSvc, aws.StringValue(m.detailCluster.ClusterArn), aws.StringValue(m.ecsServiceActionService.ServiceArn)))
+	} else if m.action == "scale" {
+		desiredCount, _ := strconv.ParseInt(m.scaleInput.Value(), 10, 64)
+		return m, tea.Batch(m.parent.spinner.Tick, commands.ScaleECSServiceCmd(m.ecsSvc, aws.StringValue(m.detailCluster.ClusterArn), aws.StringValue(m.ecsServiceActionService.ServiceArn), desiredCount))
 	}
 	return m, nil
 }
@@ -202,9 +224,6 @@ func (m ecsModel) updateClusterList(msg tea.KeyMsg) (ecsModel, tea.Cmd) {
 }
 
 func (m ecsModel) updateServiceList(msg tea.KeyMsg) (ecsModel, tea.Cmd) {
-	if len(m.header) == 0 {
-		m.header = append(m.header, aws.StringValue(m.detailCluster.ClusterName), "Services")
-	}
 	if m.serviceList.FilterState() == list.Filtering {
 		return m, nil
 	}
@@ -226,6 +245,8 @@ func (m ecsModel) updateServiceList(msg tea.KeyMsg) (ecsModel, tea.Cmd) {
 		return m.handleStopAction()
 	case key.Matches(msg, m.keys.ForceDeploy):
 		return m.handleForceDeployAction()
+	case key.Matches(msg, m.keys.Scale):
+		return m.handleScaleAction()
 	case key.Matches(msg, m.keys.Logs):
 		return m.handleLogsAction()
 	}
@@ -268,6 +289,53 @@ func (m ecsModel) handleForceDeployAction() (ecsModel, tea.Cmd) {
 	return m, nil
 }
 
+func (m ecsModel) handleScaleAction() (ecsModel, tea.Cmd) {
+	if m.serviceList.SelectedItem() != nil {
+		selectedItem := m.serviceList.SelectedItem().(ecsServiceItem)
+		selectedService := selectedItem.service
+
+		m.ecsServiceActionService = selectedService
+		m.scaleInput.SetValue("")
+		m.scaleInput.Placeholder = fmt.Sprintf("Current: %d", aws.Int64Value(selectedService.DesiredCount))
+		m.scaleInput.Focus()
+		m.state = ecsStateServiceScaleInput
+		m.status = "Ready"
+	}
+	return m, nil
+}
+
+func (m ecsModel) updateServiceScaleInput(msg tea.Msg) (ecsModel, tea.Cmd) {
+	var cmd tea.Cmd
+
+	switch msg := msg.(type) {
+	case tea.KeyMsg:
+		switch msg.String() {
+		case "enter":
+			value := m.scaleInput.Value()
+			if value != "" {
+				desiredCount, err := strconv.ParseInt(value, 10, 64)
+				if err != nil || desiredCount < 0 {
+					m.status = "Invalid desired count. Please enter a valid number."
+					return m, nil
+				}
+				m.scaleInput.Blur()
+				m.confirming = true
+				m.action = "scale"
+				m.state = ecsStateServiceConfirmAction
+				m.status = fmt.Sprintf("Confirm scaling service %s to %d tasks? (y/N)",
+					aws.StringValue(m.ecsServiceActionService.ServiceName), desiredCount)
+			}
+		case "esc":
+			m.scaleInput.Blur()
+			m.resetScaleInput()
+			return m, nil
+		}
+	}
+
+	m.scaleInput, cmd = m.scaleInput.Update(msg)
+	return m, cmd
+}
+
 func (m ecsModel) handleLogsAction() (ecsModel, tea.Cmd) {
 	if m.serviceList.SelectedItem() != nil {
 		selectedItem := m.serviceList.SelectedItem().(ecsServiceItem)
@@ -292,7 +360,9 @@ func (m ecsModel) handleClustersFetched(msg messages.EcsClustersFetchedMsg) (ecs
 }
 
 func (m ecsModel) handleServicesFetched(msg messages.EcsServicesFetchedMsg) (ecsModel, tea.Cmd) {
-	m.header = append(m.header, m.clusterList.SelectedItem().FilterValue(), "Services")
+	if len(m.header) < 2 {
+		m.header = append(m.header, m.clusterList.SelectedItem().FilterValue(), "Services")
+	}
 	listItems := make([]list.Item, len(msg))
 	for i, service := range msg {
 		listItems[i] = ecsServiceItem{service: service}
@@ -320,6 +390,16 @@ func (m ecsModel) handleServiceAction(msg messages.EcsServiceActionMsg) (ecsMode
 	return m, tea.Batch(m.parent.spinner.Tick, commands.FetchECSServicesCmd(m.ecsSvc, aws.StringValue(m.detailCluster.ClusterArn)))
 }
 
+func (m ecsModel) handleServiceScaled(msg messages.EcsServiceScaledMsg) (ecsModel, tea.Cmd) {
+	m.status = fmt.Sprintf("Service %s %s. Refreshing...", aws.StringValue(m.ecsServiceActionService.ServiceName), msg)
+	m.err = nil
+	m.action = ""
+	m.ecsServiceActionService = nil
+	m.scaleInput.SetValue("")
+	m.confirming = false
+	return m, tea.Batch(m.parent.spinner.Tick, commands.FetchECSServicesCmd(m.ecsSvc, aws.StringValue(m.detailCluster.ClusterArn)))
+}
+
 func (m ecsModel) handleServiceLogsFetched(msg messages.EcsServiceLogsFetchedMsg) (ecsModel, tea.Cmd) {
 	m.header = append(m.header, aws.StringValue(m.detailCluster.ClusterName), m.serviceList.SelectedItem().FilterValue(), "Logs")
 	m.serviceLogs = string(msg)
@@ -336,6 +416,8 @@ func (m ecsModel) handleError(msg messages.ErrMsg) (ecsModel, tea.Cmd) {
 	m.action = ""
 	m.detailService = nil
 	m.serviceLogs = ""
+	m.scaleInput.SetValue("")
+	m.scaleInput.Blur()
 	return m, nil
 }
 
@@ -374,6 +456,12 @@ func (m ecsModel) View() string {
 		}
 	case ecsStateServiceConfirmAction:
 		// s = styles.ConfirmStyle.Render(fmt.Sprintf("\n%s", m.status))
+	case ecsStateServiceScaleInput:
+		if m.ecsServiceActionService != nil {
+			s += "\n" + styles.StatusStyle.Render(fmt.Sprintf("Scale service: %s", aws.StringValue(m.ecsServiceActionService.ServiceName)))
+			s += "\n\n" + m.scaleInput.View()
+			s += "\n\n" + styles.HelpStyle.Render("Press 'enter' to confirm or 'esc' to cancel.")
+		}
 	case ecsStateServiceLogs:
 		if m.serviceLogs == "" && m.status == "Ready" {
 			s += styles.StatusStyle.Render("No logs found for this service.\n")

@@ -152,7 +152,6 @@ func (m sfnModel) handleListKeyBindings(msg tea.KeyMsg) (sfnModel, tea.Cmd) {
 		selectedItem := m.sfnList.SelectedItem().(sfnStateMachineItem)
 		m.selectedStateMachine = selectedItem.stateMachine
 		m.state = sfnStateStartExecution
-		m.status = "Enter execution input (JSON)"
 		m.inputArea.Focus()
 		return m, nil
 	}
@@ -208,7 +207,9 @@ func (m sfnModel) handleStartExecutionKeyBindings(msg tea.KeyMsg) (sfnModel, tea
 		m.status = "Starting execution..."
 		return m, commands.StartSFNExecutionCmd(m.sfnSvc, m.selectedStateMachine.StateMachineArn, &input)
 	}
-	return m, nil
+	var cmd tea.Cmd
+	m.inputArea, cmd = m.inputArea.Update(msg)
+	return m, cmd
 }
 
 func (m sfnModel) handleStateMachinesFetched(msg messages.SfnStateMachinesFetchedMsg) (sfnModel, tea.Cmd) {
@@ -280,8 +281,6 @@ func (m sfnModel) updateUIComponents(msg tea.Msg, cmd tea.Cmd) (sfnModel, tea.Cm
 		m.header = append(m.header, aws.StringValue(m.selectedStateMachine.Name), "Executions", aws.StringValue(m.selectedExecution.Name), "History")
 		m.executionHistoryList, cmd = m.executionHistoryList.Update(msg)
 
-	case sfnStateStartExecution:
-		m.inputArea, cmd = m.inputArea.Update(msg)
 	}
 	return m, cmd
 }

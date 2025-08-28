@@ -264,6 +264,22 @@ func ForceDeployECSServiceCmd(svc *ecs.ECS, clusterArn, serviceArn string) tea.C
 	}
 }
 
+// ScaleECSServiceCmd scales an ECS service to the specified desired count.
+func ScaleECSServiceCmd(svc *ecs.ECS, clusterArn, serviceArn string, desiredCount int64) tea.Cmd {
+	return func() tea.Msg {
+		_, err := svc.UpdateService(&ecs.UpdateServiceInput{
+			Cluster:      aws.String(clusterArn),
+			Service:      aws.String(serviceArn),
+			DesiredCount: aws.Int64(desiredCount),
+		})
+		if err != nil {
+			return messages.ErrMsg(fmt.Errorf("failed to scale ECS service %s to %d: %w", serviceArn, desiredCount, err))
+		}
+		time.Sleep(2 * time.Second)
+		return messages.EcsServiceScaledMsg(fmt.Sprintf("scaled to %d", desiredCount))
+	}
+}
+
 // FetchECSServiceLogsCmd fetches logs for a specific ECS service from CloudWatch Logs.
 func FetchECSServiceLogsCmd(ecsSvc *ecs.ECS, cloudwatchlogsSvc *cloudwatchlogs.CloudWatchLogs, service *ecs.Service) tea.Cmd {
 	return func() tea.Msg {

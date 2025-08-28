@@ -18,6 +18,7 @@ type (
 	EcsServicesFetchedMsg    []*ecs.Service
 	EcsServiceDetailsMsg     *ecs.Service
 	EcsServiceActionMsg      string
+	EcsServiceScaledMsg      string
 	EcsServiceLogsFetchedMsg string
 
 	EcrRepositoriesFetchedMsg []*ecr.Repository

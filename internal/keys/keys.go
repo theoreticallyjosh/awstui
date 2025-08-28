@@ -3,16 +3,17 @@ package keys
 import "github.com/charmbracelet/bubbles/key"
 
 type ListKeyMap struct {
-	Details     key.Binding
-	Start       key.Binding
-	Stop        key.Binding
-	Ssh         key.Binding
-	Refresh     key.Binding
-	Logs        key.Binding
-	ForceDeploy key.Binding
-	Pull        key.Binding
-	Push        key.Binding
-	Choose      key.Binding
+	Details        key.Binding
+	Start          key.Binding
+	Stop           key.Binding
+	Ssh            key.Binding
+	Refresh        key.Binding
+	Logs           key.Binding
+	ForceDeploy    key.Binding
+	Scale          key.Binding
+	Pull           key.Binding
+	Push           key.Binding
+	Choose         key.Binding
 	StartExecution key.Binding
 }
 
@@ -45,6 +46,10 @@ func NewListKeyMap() *ListKeyMap {
 		ForceDeploy: key.NewBinding(
 			key.WithKeys("f"),
 			key.WithHelp("f", "force deploy"),
+		),
+		Scale: key.NewBinding(
+			key.WithKeys("c"),
+			key.WithHelp("c", "scale"),
 		),
 		Pull: key.NewBinding(
 			key.WithKeys("p"),

@@ -26,7 +26,7 @@ A terminal user interface (TUI) for interacting with AWS services, built with Go
 - [x] View Logs
 - [x] Trigger service redeployment
 - [x] Stop service (scale to 0)
-- [ ] Scale service
+- [x] Scale service
 
 ### ECR
 
