@@ -49,186 +49,272 @@ func (m sfnModel) Init() tea.Cmd {
 func (m sfnModel) Update(msg tea.Msg) (sfnModel, tea.Cmd) {
 	m.header = []string{"Step Functions"}
 	var cmd tea.Cmd
+
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
-		m.sfnList.SetSize(msg.Width, msg.Height)
-		m.executionList.SetSize(msg.Width, msg.Height)
-		m.executionHistoryList.SetSize(msg.Width, msg.Height)
+		m.updateWindowSize(msg)
+
 	case tea.KeyMsg:
 		switch {
 		case key.Matches(msg, key.NewBinding(key.WithKeys("esc"), key.WithHelp("esc", "back"))):
-			if m.state == sfnStateExecutions {
-				m.state = sfnStateList
-				m.status = "Ready"
-				m.err = nil
-				m.executionList.SetItems([]list.Item{})
-				return m, nil
-			} else if m.state == sfnStateStartExecution {
-				m.state = sfnStateExecutions
-				m.status = "Ready"
-				m.err = nil
-				m.inputArea.Reset()
-				return m, nil
-			} else {
-				m.state = sfnStateExecutions
-				m.status = "Ready"
-				m.err = nil
-				return m, nil
-			}
+			return m.handleEscKey()
 		}
-		switch m.state {
-		case sfnStateList:
-			if m.sfnList.FilterState() == list.Filtering {
-				break
-			}
-			switch {
-			case key.Matches(msg, m.keys.Refresh):
-				m.status = styles.StatusStyle.Render("Refreshing state machines...")
-				m.err = nil
-				return m, tea.Batch(m.parent.spinner.Tick, commands.FetchSFNStateMachinesCmd(m.sfnSvc))
-			case key.Matches(msg, m.keys.Choose):
-				if m.sfnList.SelectedItem() != nil {
-					selectedItem := m.sfnList.SelectedItem().(sfnStateMachineItem)
-					m.selectedStateMachine = selectedItem.stateMachine
-					m.state = sfnStateExecutions
-					m.status = fmt.Sprintf("Loading executions for %s...", aws.StringValue(selectedItem.stateMachine.Name))
-					return m, tea.Batch(m.parent.spinner.Tick, commands.FetchSFNExecutionsCmd(m.sfnSvc, selectedItem.stateMachine.StateMachineArn))
-				}
-			case key.Matches(msg, m.keys.StartExecution):
-				selectedItem := m.sfnList.SelectedItem().(sfnStateMachineItem)
-				m.selectedStateMachine = selectedItem.stateMachine
-				m.state = sfnStateStartExecution
-				m.status = "Enter execution input (JSON)"
-				m.inputArea.Focus()
-				return m, nil
-			}
-		case sfnStateExecutions:
-			if m.executionList.FilterState() == list.Filtering {
-				break
-			}
-			switch {
-			case key.Matches(msg, m.keys.Refresh):
-				m.status = styles.StatusStyle.Render("Refreshing executions...")
-				m.err = nil
-				return m, tea.Batch(m.parent.spinner.Tick, commands.FetchSFNExecutionsCmd(m.sfnSvc, m.selectedStateMachine.StateMachineArn))
-			case key.Matches(msg, m.keys.Choose):
-				if m.executionList.SelectedItem() != nil {
-					selectedItem := m.executionList.SelectedItem().(sfnExecutionItem)
-					m.selectedExecution = selectedItem.execution
-					m.state = sfnStateExecutionDetails
-					m.status = fmt.Sprintf("Loading execution history for %s...", aws.StringValue(selectedItem.execution.Name))
-					return m, tea.Batch(m.parent.spinner.Tick, commands.FetchSFNExecutionHistoryCmd(m.sfnSvc, selectedItem.execution.ExecutionArn))
-				}
-			}
-		case sfnStateExecutionDetails:
-			if m.executionHistoryList.FilterState() == list.Filtering {
-				break
-			}
-			switch {
-			case key.Matches(msg, m.keys.Refresh):
-				m.status = styles.StatusStyle.Render("Refreshing execution history...")
-				m.err = nil
-				return m, tea.Batch(m.parent.spinner.Tick, commands.FetchSFNExecutionHistoryCmd(m.sfnSvc, m.selectedExecution.ExecutionArn))
-			}
-		case sfnStateStartExecution:
-			if key.Matches(msg, m.keys.Choose) {
-				input := m.inputArea.Value()
-				m.status = "Starting execution..."
-				return m, commands.StartSFNExecutionCmd(m.sfnSvc, m.selectedStateMachine.StateMachineArn, &input)
-			}
-		}
+		return m.handleKeyBindings(msg)
+
 	case messages.SfnStateMachinesFetchedMsg:
-		listItems := make([]list.Item, len(msg))
-		for i, sm := range msg {
-			listItems[i] = sfnStateMachineItem{stateMachine: sm}
-		}
-		m.sfnList.SetItems(listItems)
-		m.status = "Ready"
-		m.err = nil
-		return m, nil
+		return m.handleStateMachinesFetched(msg)
+
 	case messages.SfnExecutionsFetchedMsg:
-		m.header = append(m.header, aws.StringValue(m.selectedStateMachine.Name), "Executions")
-		listItems := make([]list.Item, len(msg))
-		for i, ex := range msg {
-			listItems[i] = sfnExecutionItem{execution: ex}
-		}
-		m.executionList.SetItems(listItems)
-		m.status = "Ready"
-		m.err = nil
-		return m, nil
+		return m.handleExecutionsFetched(msg)
+
 	case messages.SfnExecutionHistoryFetchedMsg:
-		m.header = append(m.header, aws.StringValue(m.selectedStateMachine.Name), "Executions", aws.StringValue(m.selectedExecution.Name), "History")
-		eventsMap := make(map[int64]*sfn.HistoryEvent)
-		for _, e := range msg {
-			if e.Id != nil {
-				eventsMap[*e.Id] = e
-			}
-		}
-		listItems := []list.Item{}
-		for i := 1; i < len(eventsMap); i++ {
-			event := eventsMap[int64(i)]
-			stateName := GetStateName(event, msg, eventsMap)
-			listItems = append(listItems, sfnExecutionHistoryItem{event: &sfnHistoryState{ID: event.Id, Step: &stateName, Type: event.Type, Timestamp: event.Timestamp}})
-		}
-		m.executionHistoryList.SetItems(listItems)
+		return m.handleExecutionHistoryFetched(msg)
+
+	case messages.SfnExecutionStartedMsg:
+		return m.handleExecutionStarted()
+
+	case messages.ErrMsg:
+		return m.handleError(msg)
+	}
+
+	// Update the appropriate UI component based on current state
+	return m.updateUIComponents(msg, cmd)
+}
+
+func (m *sfnModel) updateWindowSize(msg tea.WindowSizeMsg) {
+	m.sfnList.SetSize(msg.Width, msg.Height)
+	m.executionList.SetSize(msg.Width, msg.Height)
+	m.executionHistoryList.SetSize(msg.Width, msg.Height)
+}
+
+func (m sfnModel) handleEscKey() (sfnModel, tea.Cmd) {
+	switch m.state {
+	case sfnStateExecutions:
+		m.state = sfnStateList
 		m.status = "Ready"
 		m.err = nil
+		m.executionList.SetItems([]list.Item{})
 		return m, nil
-	case messages.SfnExecutionStartedMsg:
+
+	case sfnStateStartExecution:
 		m.state = sfnStateExecutions
-		m.status = "Execution started successfully"
+		m.status = "Ready"
+		m.err = nil
 		m.inputArea.Reset()
-		return m, tea.Batch(m.parent.spinner.Tick, commands.FetchSFNExecutionsCmd(m.sfnSvc, m.selectedStateMachine.StateMachineArn))
-	case messages.ErrMsg:
-		m.err = msg
-		m.status = "Error"
+		return m, nil
+
+	default:
+		m.state = sfnStateExecutions
+		m.status = "Ready"
+		m.err = nil
 		return m, nil
 	}
-	if m.state == sfnStateList {
+}
+
+func (m sfnModel) handleKeyBindings(msg tea.KeyMsg) (sfnModel, tea.Cmd) {
+	switch m.state {
+	case sfnStateList:
+		return m.handleListKeyBindings(msg)
+
+	case sfnStateExecutions:
+		return m.handleExecutionsKeyBindings(msg)
+
+	case sfnStateExecutionDetails:
+		return m.handleExecutionDetailsKeyBindings(msg)
+
+	case sfnStateStartExecution:
+		return m.handleStartExecutionKeyBindings(msg)
+	}
+	return m, nil
+}
+
+func (m sfnModel) handleListKeyBindings(msg tea.KeyMsg) (sfnModel, tea.Cmd) {
+	if m.sfnList.FilterState() == list.Filtering {
+		return m, nil
+	}
+
+	switch {
+	case key.Matches(msg, m.keys.Refresh):
+		m.status = styles.StatusStyle.Render("Refreshing state machines...")
+		m.err = nil
+		return m, tea.Batch(m.parent.spinner.Tick, commands.FetchSFNStateMachinesCmd(m.sfnSvc))
+
+	case key.Matches(msg, m.keys.Choose):
+		if selectedItem := m.sfnList.SelectedItem(); selectedItem != nil {
+			selectedItemTyped := selectedItem.(sfnStateMachineItem)
+			m.selectedStateMachine = selectedItemTyped.stateMachine
+			m.state = sfnStateExecutions
+			m.status = fmt.Sprintf("Loading executions for %s...", aws.StringValue(selectedItemTyped.stateMachine.Name))
+			return m, tea.Batch(m.parent.spinner.Tick, commands.FetchSFNExecutionsCmd(m.sfnSvc, selectedItemTyped.stateMachine.StateMachineArn))
+		}
+
+	case key.Matches(msg, m.keys.StartExecution):
+		selectedItem := m.sfnList.SelectedItem().(sfnStateMachineItem)
+		m.selectedStateMachine = selectedItem.stateMachine
+		m.state = sfnStateStartExecution
+		m.status = "Enter execution input (JSON)"
+		m.inputArea.Focus()
+		return m, nil
+	}
+	var cmd tea.Cmd
+	m.sfnList, cmd = m.sfnList.Update(msg)
+	return m, cmd
+}
+
+func (m sfnModel) handleExecutionsKeyBindings(msg tea.KeyMsg) (sfnModel, tea.Cmd) {
+	if m.executionList.FilterState() == list.Filtering {
+		return m, nil
+	}
+
+	switch {
+	case key.Matches(msg, m.keys.Refresh):
+		m.status = styles.StatusStyle.Render("Refreshing executions...")
+		m.err = nil
+		return m, tea.Batch(m.parent.spinner.Tick, commands.FetchSFNExecutionsCmd(m.sfnSvc, m.selectedStateMachine.StateMachineArn))
+
+	case key.Matches(msg, m.keys.Choose):
+		if selectedItem := m.executionList.SelectedItem(); selectedItem != nil {
+			selectedItemTyped := selectedItem.(sfnExecutionItem)
+			m.selectedExecution = selectedItemTyped.execution
+			m.state = sfnStateExecutionDetails
+			m.status = fmt.Sprintf("Loading execution history for %s...", aws.StringValue(selectedItemTyped.execution.Name))
+			return m, tea.Batch(m.parent.spinner.Tick, commands.FetchSFNExecutionHistoryCmd(m.sfnSvc, selectedItemTyped.execution.ExecutionArn))
+		}
+	}
+	var cmd tea.Cmd
+	m.executionList, cmd = m.executionList.Update(msg)
+	return m, cmd
+}
+
+func (m sfnModel) handleExecutionDetailsKeyBindings(msg tea.KeyMsg) (sfnModel, tea.Cmd) {
+	if m.executionHistoryList.FilterState() == list.Filtering {
+		return m, nil
+	}
+
+	switch {
+	case key.Matches(msg, m.keys.Refresh):
+		m.status = styles.StatusStyle.Render("Refreshing execution history...")
+		m.err = nil
+		return m, tea.Batch(m.parent.spinner.Tick, commands.FetchSFNExecutionHistoryCmd(m.sfnSvc, m.selectedExecution.ExecutionArn))
+	}
+	var cmd tea.Cmd
+	m.executionHistoryList, cmd = m.executionHistoryList.Update(msg)
+	return m, cmd
+}
+
+func (m sfnModel) handleStartExecutionKeyBindings(msg tea.KeyMsg) (sfnModel, tea.Cmd) {
+	if key.Matches(msg, m.keys.Choose) {
+		input := m.inputArea.Value()
+		m.status = "Starting execution..."
+		return m, commands.StartSFNExecutionCmd(m.sfnSvc, m.selectedStateMachine.StateMachineArn, &input)
+	}
+	return m, nil
+}
+
+func (m sfnModel) handleStateMachinesFetched(msg messages.SfnStateMachinesFetchedMsg) (sfnModel, tea.Cmd) {
+	listItems := make([]list.Item, len(msg))
+	for i, sm := range msg {
+		listItems[i] = sfnStateMachineItem{stateMachine: sm}
+	}
+	m.sfnList.SetItems(listItems)
+	m.status = "Ready"
+	m.err = nil
+	return m, nil
+}
+
+func (m sfnModel) handleExecutionsFetched(msg messages.SfnExecutionsFetchedMsg) (sfnModel, tea.Cmd) {
+	m.header = append(m.header, aws.StringValue(m.selectedStateMachine.Name), "Executions")
+	listItems := make([]list.Item, len(msg))
+	for i, ex := range msg {
+		listItems[i] = sfnExecutionItem{execution: ex}
+	}
+	m.executionList.SetItems(listItems)
+	m.status = "Ready"
+	m.err = nil
+	return m, nil
+}
+
+func (m sfnModel) handleExecutionHistoryFetched(msg messages.SfnExecutionHistoryFetchedMsg) (sfnModel, tea.Cmd) {
+	m.header = append(m.header, aws.StringValue(m.selectedStateMachine.Name), "Executions", aws.StringValue(m.selectedExecution.Name), "History")
+	eventsMap := make(map[int64]*sfn.HistoryEvent)
+	for _, e := range msg {
+		if e.Id != nil {
+			eventsMap[*e.Id] = e
+		}
+	}
+	listItems := []list.Item{}
+	for i := 1; i < len(eventsMap); i++ {
+		event := eventsMap[int64(i)]
+		stateName := GetStateName(event, msg, eventsMap)
+		listItems = append(listItems, sfnExecutionHistoryItem{event: &sfnHistoryState{ID: event.Id, Step: &stateName, Type: event.Type, Timestamp: event.Timestamp}})
+	}
+	m.executionHistoryList.SetItems(listItems)
+	m.status = "Ready"
+	m.err = nil
+	return m, nil
+}
+
+func (m sfnModel) handleExecutionStarted() (sfnModel, tea.Cmd) {
+	m.state = sfnStateExecutions
+	m.status = "Execution started successfully"
+	m.inputArea.Reset()
+	return m, tea.Batch(m.parent.spinner.Tick, commands.FetchSFNExecutionsCmd(m.sfnSvc, m.selectedStateMachine.StateMachineArn))
+}
+
+func (m sfnModel) handleError(msg messages.ErrMsg) (sfnModel, tea.Cmd) {
+	m.err = msg
+	m.status = "Error"
+	return m, nil
+}
+
+func (m sfnModel) updateUIComponents(msg tea.Msg, cmd tea.Cmd) (sfnModel, tea.Cmd) {
+	switch m.state {
+	case sfnStateList:
 		m.sfnList, cmd = m.sfnList.Update(msg)
-	} else if m.state == sfnStateExecutions {
+
+	case sfnStateExecutions:
 		m.header = append(m.header, aws.StringValue(m.selectedStateMachine.Name), "Executions")
 		m.executionList, cmd = m.executionList.Update(msg)
-	} else if m.state == sfnStateExecutionDetails {
+
+	case sfnStateExecutionDetails:
 		m.header = append(m.header, aws.StringValue(m.selectedStateMachine.Name), "Executions", aws.StringValue(m.selectedExecution.Name), "History")
 		m.executionHistoryList, cmd = m.executionHistoryList.Update(msg)
-	} else if m.state == sfnStateStartExecution {
+
+	case sfnStateStartExecution:
 		m.inputArea, cmd = m.inputArea.Update(msg)
 	}
 	return m, cmd
 }
 
 func (m sfnModel) View() string {
-	var s string
 	switch m.state {
 	case sfnStateList:
 		if len(m.sfnList.Items()) == 0 && m.status == "Ready" {
-			s = styles.StatusStyle.Render("No Step Functions state machines found in this region.\n")
-		} else {
-			s = m.sfnList.View()
+			return styles.StatusStyle.Render("No Step Functions state machines found in this region.\n")
 		}
+		return m.sfnList.View()
+
 	case sfnStateExecutions:
 		if len(m.executionList.Items()) == 0 && m.status == "Ready" {
-			s = styles.StatusStyle.Render("No executions found for this state machine.\n")
-		} else {
-			s = m.executionList.View()
+			return styles.StatusStyle.Render("No executions found for this state machine.\n")
 		}
+		return m.executionList.View()
+
 	case sfnStateExecutionDetails:
 		if len(m.executionHistoryList.Items()) == 0 && m.status == "Ready" {
-			s = styles.StatusStyle.Render("No execution history found for this execution.\n")
-		} else {
-			s = m.executionHistoryList.View()
+			return styles.StatusStyle.Render("No execution history found for this execution.\n")
 		}
+		return m.executionHistoryList.View()
+
 	case sfnStateStartExecution:
-		s = fmt.Sprintf(
+		return fmt.Sprintf(
 			"Enter input for %s\n\n%s\n\n%s",
 			aws.StringValue(m.selectedStateMachine.Name),
 			m.inputArea.View(),
 			"(Press Enter to submit, Esc to cancel)",
 		)
 	}
-
-	return s
+	return ""
 }
 
 type sfnExecutionHistoryItem struct {
@@ -259,7 +345,6 @@ func GetStateName(event *sfn.HistoryEvent, events messages.SfnExecutionHistoryFe
 		return "State Machine"
 	}
 	switch aws.StringValue(event.Type) {
-	// Direct state events
 	case sfn.HistoryEventTypeTaskStateEntered:
 		return aws.StringValue(event.StateEnteredEventDetails.Name)
 	case sfn.HistoryEventTypeTaskStateExited:
@@ -280,15 +365,11 @@ func GetStateName(event *sfn.HistoryEvent, events messages.SfnExecutionHistoryFe
 		return aws.StringValue(event.StateEnteredEventDetails.Name)
 	case sfn.HistoryEventTypeMapStateExited:
 		return aws.StringValue(event.StateExitedEventDetails.Name)
-
-	// Task and Lambda failures/successes
 	default:
 		return walkBackToStateEntered(event, eventsMap)
 	}
-
 }
 
-// walkBackToStateEntered scans backward in the event list until it finds the latest TaskStateEntered
 func walkBackToStateEntered(event *sfn.HistoryEvent, history map[int64]*sfn.HistoryEvent) string {
 	if event.Id == nil {
 		return ""
@@ -300,11 +381,5 @@ func walkBackToStateEntered(event *sfn.HistoryEvent, history map[int64]*sfn.Hist
 		}
 		i = aws.Int64Value(cur.PreviousEventId)
 	}
-	// for i := len(history) - 1; i >= 0; i-- {
-	// 	e := history[i]
-	// 	if e.Id != nil && *e.Id < *event.Id && aws.StringValue(e.Type) == sfn.HistoryEventTypeTaskStateEntered {
-	// 		return aws.StringValue(e.StateEnteredEventDetails.Name)
-	// 	}
-	// }
 	return ""
 }
