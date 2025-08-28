@@ -56,191 +56,42 @@ func (m ecsModel) Init() tea.Cmd {
 
 func (m ecsModel) Update(msg tea.Msg) (ecsModel, tea.Cmd) {
 	var cmd tea.Cmd
-	m.header = []string{"ECS Clusters"}
 
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
-		m.paginator.PerPage = msg.Height - 2
-		m.clusterList.SetSize(msg.Width, msg.Height)
-		m.serviceList.SetSize(msg.Width, msg.Height)
+		m.updateWindowSize(msg)
 	case tea.KeyMsg:
-		switch {
-		case key.Matches(msg, key.NewBinding(key.WithKeys("esc"), key.WithHelp("esc", "back"))):
-			if m.state == ecsStateServiceList {
-				m.state = ecsStateClusterList
-				m.status = "Ready"
-				m.err = nil
-				m.serviceList.SetItems([]list.Item{})
-				return m, nil
-			} else if m.state == ecsStateServiceDetails {
-				m.state = ecsStateServiceList
-				m.status = "Ready"
-				m.err = nil
-				m.detailService = nil
-				return m, nil
-			} else if m.state == ecsStateServiceConfirmAction {
-				m.state = ecsStateServiceList
-				m.confirming = false
-				m.action = ""
-				m.ecsServiceActionService = nil
-				m.status = "Ready"
-				return m, nil
-			} else if m.state == ecsStateServiceLogs {
-				m.state = ecsStateServiceList
-				m.status = "Ready"
-				m.err = nil
-				m.serviceLogs = ""
-				return m, nil
-			}
-		}
-		if m.state == ecsStateServiceConfirmAction {
-			switch msg.String() {
-			case "y", "Y":
-				m.confirming = false
-				m.status = fmt.Sprintf("%sing service %s...", m.action, aws.StringValue(m.ecsServiceActionService.ServiceName))
-				m.err = nil
-				if m.action == "stop" {
-					return m, tea.Batch(m.parent.spinner.Tick, commands.StopECSServiceCmd(m.ecsSvc, aws.StringValue(m.detailCluster.ClusterArn), aws.StringValue(m.ecsServiceActionService.ServiceArn)))
-				} else if m.action == "force-deploy" {
-					return m, tea.Batch(m.parent.spinner.Tick, commands.ForceDeployECSServiceCmd(m.ecsSvc, aws.StringValue(m.detailCluster.ClusterArn), aws.StringValue(m.ecsServiceActionService.ServiceArn)))
-				}
-			case "n", "N":
-				m.confirming = false
-				m.status = "Ready"
-				m.action = ""
-				m.state = ecsStateServiceList
-				m.ecsServiceActionService = nil
-			}
+		if m.handleEscKey(msg) {
 			return m, nil
+		}
+
+		if m.state == ecsStateServiceConfirmAction {
+			return m.handleConfirmAction(msg)
 		}
 
 		switch m.state {
 		case ecsStateClusterList:
-			if m.clusterList.FilterState() == list.Filtering {
-				break
-			}
-			switch {
-			case key.Matches(msg, m.keys.Refresh):
-				m.status = "Refreshing ECS clusters..."
-				m.err = nil
-				return m, tea.Batch(m.parent.spinner.Tick, commands.FetchECSClustersCmd(m.ecsSvc))
-			case key.Matches(msg, m.keys.Choose):
-				if m.clusterList.SelectedItem() != nil {
-					selectedItem := m.clusterList.SelectedItem().(ecsClusterItem)
-					m.detailCluster = selectedItem.cluster
-					m.state = ecsStateServiceList
-					m.status = fmt.Sprintf("Loading services for cluster %s...", aws.StringValue(m.detailCluster.ClusterName))
-					return m, tea.Batch(m.parent.spinner.Tick, commands.FetchECSServicesCmd(m.ecsSvc, aws.StringValue(m.detailCluster.ClusterArn)))
-				}
-			}
+			return m.updateClusterList(msg)
 		case ecsStateServiceList:
-			m.header = append(m.header, aws.StringValue(m.detailCluster.ClusterName), "Services")
-			if m.serviceList.FilterState() == list.Filtering {
-				break
-			}
-			switch {
-			case key.Matches(msg, m.keys.Refresh):
-				m.status = fmt.Sprintf("Refreshing services for cluster %s...", aws.StringValue(m.detailCluster.ClusterName))
-				m.err = nil
-				return m, tea.Batch(m.parent.spinner.Tick, commands.FetchECSServicesCmd(m.ecsSvc, aws.StringValue(m.detailCluster.ClusterArn)))
-			case key.Matches(msg, m.keys.Details):
-				if m.serviceList.SelectedItem() != nil {
-					selectedItem := m.serviceList.SelectedItem().(ecsServiceItem)
-					m.detailService = selectedItem.service
-					m.state = ecsStateServiceDetails
-					m.status = "Ready"
-					m.err = nil
-				}
-			case key.Matches(msg, m.keys.Stop):
-				if m.serviceList.SelectedItem() != nil {
-					selectedItem := m.serviceList.SelectedItem().(ecsServiceItem)
-					selectedService := selectedItem.service
-					if aws.Int64Value(selectedService.DesiredCount) > 0 {
-						m.confirming = true
-						m.action = "stop"
-						m.ecsServiceActionService = selectedService
-						m.state = ecsStateServiceConfirmAction
-						m.status = fmt.Sprintf("Confirm stopping service %s (Desired: %d)? (y/N)",
-							aws.StringValue(selectedService.ServiceName), aws.Int64Value(selectedService.DesiredCount))
-					} else {
-						m.status = fmt.Sprintf("Service %s is already stopped (Desired: 0).", aws.StringValue(selectedService.ServiceName))
-					}
-				}
-			case key.Matches(msg, m.keys.ForceDeploy):
-				if m.serviceList.SelectedItem() != nil {
-					selectedItem := m.serviceList.SelectedItem().(ecsServiceItem)
-					selectedService := selectedItem.service
-					m.confirming = true
-					m.action = "force-deploy"
-					m.ecsServiceActionService = selectedService
-					m.state = ecsStateServiceConfirmAction
-					m.status = fmt.Sprintf("Confirm force deployment of service %s? (y/N)",
-						aws.StringValue(selectedService.ServiceName))
-				}
-			case key.Matches(msg, m.keys.Logs):
-				if m.serviceList.SelectedItem() != nil {
-					selectedItem := m.serviceList.SelectedItem().(ecsServiceItem)
-					m.detailService = selectedItem.service
-					m.state = ecsStateServiceLogs
-					m.status = fmt.Sprintf("Fetching logs for service %s...", aws.StringValue(selectedItem.service.ServiceName))
-					return m, tea.Batch(m.parent.spinner.Tick, commands.FetchECSServiceLogsCmd(m.ecsSvc, m.cloudwatchlogsSvc, selectedItem.service))
-				}
-			}
+			return m.updateServiceList(msg)
 		case ecsStateServiceDetails:
 			// No key handling in these states for now
 		case ecsStateServiceLogs:
-			m.header = append(m.header, aws.StringValue(m.detailCluster.ClusterName), m.serviceList.SelectedItem().FilterValue(), "Logs")
 			m.paginator, cmd = m.paginator.Update(msg)
 			return m, cmd
 		}
-
 	case messages.EcsClustersFetchedMsg:
-		listItems := make([]list.Item, len(msg))
-		for i, cluster := range msg {
-			listItems[i] = ecsClusterItem{cluster: cluster}
-		}
-		m.clusterList.SetItems(listItems)
-		m.status = "Ready"
-		m.err = nil
-		return m, nil
+		return m.handleClustersFetched(msg)
 	case messages.EcsServicesFetchedMsg:
-		m.header = append(m.header, m.clusterList.SelectedItem().FilterValue(), "Services")
-		listItems := make([]list.Item, len(msg))
-		for i, service := range msg {
-			listItems[i] = ecsServiceItem{service: service}
-		}
-		m.serviceList.SetItems(listItems)
-		m.status = "Ready"
-		m.err = nil
-		return m, nil
+		return m.handleServicesFetched(msg)
 	case messages.EcsServiceDetailsMsg:
-		m.detailService = msg
-		m.state = ecsStateServiceDetails
-		m.status = "Ready"
-		m.err = nil
-		return m, nil
+		return m.handleServiceDetails(msg)
 	case messages.EcsServiceActionMsg:
-		m.status = fmt.Sprintf("Service %s %s. Refreshing...", aws.StringValue(m.ecsServiceActionService.ServiceName), msg)
-		m.err = nil
-		m.action = ""
-		m.ecsServiceActionService = nil
-		m.confirming = false
-		return m, tea.Batch(m.parent.spinner.Tick, commands.FetchECSServicesCmd(m.ecsSvc, aws.StringValue(m.detailCluster.ClusterArn)))
+		return m.handleServiceAction(msg)
 	case messages.EcsServiceLogsFetchedMsg:
-		m.header = append(m.header, aws.StringValue(m.detailCluster.ClusterName), m.serviceList.SelectedItem().FilterValue(), "Logs")
-		m.serviceLogs = string(msg)
-		m.paginator.SetTotalPages(len(strings.Split(m.serviceLogs, "\n")))
-		m.status = "Ready"
-		m.err = nil
-		return m, nil
+		return m.handleServiceLogsFetched(msg)
 	case messages.ErrMsg:
-		m.err = msg
-		m.status = "Error"
-		m.confirming = false
-		m.action = ""
-		m.detailService = nil
-		m.serviceLogs = ""
-		return m, nil
+		return m.handleError(msg)
 	}
 
 	if m.state == ecsStateClusterList {
@@ -251,8 +102,246 @@ func (m ecsModel) Update(msg tea.Msg) (ecsModel, tea.Cmd) {
 	return m, cmd
 }
 
+func (m *ecsModel) updateWindowSize(msg tea.WindowSizeMsg) {
+	m.paginator.PerPage = msg.Height - 2
+	m.clusterList.SetSize(msg.Width, msg.Height)
+	m.serviceList.SetSize(msg.Width, msg.Height)
+}
+
+func (m *ecsModel) handleEscKey(msg tea.KeyMsg) bool {
+	switch {
+	case key.Matches(msg, key.NewBinding(key.WithKeys("esc"), key.WithHelp("esc", "back"))):
+		switch m.state {
+		case ecsStateServiceList:
+			m.resetToClusterList()
+			return true
+		case ecsStateServiceDetails:
+			m.state = ecsStateServiceList
+			m.status = "Ready"
+			m.err = nil
+			m.detailService = nil
+			return true
+		case ecsStateServiceConfirmAction:
+			m.resetConfirmAction()
+			return true
+		case ecsStateServiceLogs:
+			m.resetToServiceList()
+			return true
+		}
+	}
+	return false
+}
+
+func (m *ecsModel) resetToClusterList() {
+	m.state = ecsStateClusterList
+	m.status = "Ready"
+	m.err = nil
+	m.serviceList.SetItems([]list.Item{})
+}
+
+func (m *ecsModel) resetConfirmAction() {
+	m.state = ecsStateServiceList
+	m.confirming = false
+	m.action = ""
+	m.ecsServiceActionService = nil
+	m.status = "Ready"
+}
+
+func (m *ecsModel) resetToServiceList() {
+	m.state = ecsStateServiceList
+	m.status = "Ready"
+	m.err = nil
+	m.serviceLogs = ""
+}
+
+func (m ecsModel) handleConfirmAction(msg tea.KeyMsg) (ecsModel, tea.Cmd) {
+	switch msg.String() {
+	case "y", "Y":
+		return m.executeServiceAction()
+	case "n", "N":
+		m.resetConfirmAction()
+	}
+	return m, nil
+}
+
+func (m ecsModel) executeServiceAction() (ecsModel, tea.Cmd) {
+	m.confirming = false
+	m.status = fmt.Sprintf("%sing service %s...", m.action, aws.StringValue(m.ecsServiceActionService.ServiceName))
+	m.err = nil
+
+	if m.action == "stop" {
+		return m, tea.Batch(m.parent.spinner.Tick, commands.StopECSServiceCmd(m.ecsSvc, aws.StringValue(m.detailCluster.ClusterArn), aws.StringValue(m.ecsServiceActionService.ServiceArn)))
+	} else if m.action == "force-deploy" {
+		return m, tea.Batch(m.parent.spinner.Tick, commands.ForceDeployECSServiceCmd(m.ecsSvc, aws.StringValue(m.detailCluster.ClusterArn), aws.StringValue(m.ecsServiceActionService.ServiceArn)))
+	}
+	return m, nil
+}
+
+func (m ecsModel) updateClusterList(msg tea.KeyMsg) (ecsModel, tea.Cmd) {
+	if m.clusterList.FilterState() == list.Filtering {
+		return m, nil
+	}
+
+	switch {
+	case key.Matches(msg, m.keys.Refresh):
+		m.status = "Refreshing ECS clusters..."
+		m.err = nil
+		return m, tea.Batch(m.parent.spinner.Tick, commands.FetchECSClustersCmd(m.ecsSvc))
+	case key.Matches(msg, m.keys.Choose):
+		if m.clusterList.SelectedItem() != nil {
+			selectedItem := m.clusterList.SelectedItem().(ecsClusterItem)
+			m.detailCluster = selectedItem.cluster
+			m.state = ecsStateServiceList
+			m.status = fmt.Sprintf("Loading services for cluster %s...", aws.StringValue(m.detailCluster.ClusterName))
+			return m, tea.Batch(m.parent.spinner.Tick, commands.FetchECSServicesCmd(m.ecsSvc, aws.StringValue(m.detailCluster.ClusterArn)))
+		}
+	}
+	var cmd tea.Cmd
+	m.clusterList, cmd = m.clusterList.Update(msg)
+	return m, cmd
+}
+
+func (m ecsModel) updateServiceList(msg tea.KeyMsg) (ecsModel, tea.Cmd) {
+	if len(m.header) == 0 {
+		m.header = append(m.header, aws.StringValue(m.detailCluster.ClusterName), "Services")
+	}
+	if m.serviceList.FilterState() == list.Filtering {
+		return m, nil
+	}
+
+	switch {
+	case key.Matches(msg, m.keys.Refresh):
+		m.status = fmt.Sprintf("Refreshing services for cluster %s...", aws.StringValue(m.detailCluster.ClusterName))
+		m.err = nil
+		return m, tea.Batch(m.parent.spinner.Tick, commands.FetchECSServicesCmd(m.ecsSvc, aws.StringValue(m.detailCluster.ClusterArn)))
+	case key.Matches(msg, m.keys.Details):
+		if m.serviceList.SelectedItem() != nil {
+			selectedItem := m.serviceList.SelectedItem().(ecsServiceItem)
+			m.detailService = selectedItem.service
+			m.state = ecsStateServiceDetails
+			m.status = "Ready"
+			m.err = nil
+		}
+	case key.Matches(msg, m.keys.Stop):
+		return m.handleStopAction()
+	case key.Matches(msg, m.keys.ForceDeploy):
+		return m.handleForceDeployAction()
+	case key.Matches(msg, m.keys.Logs):
+		return m.handleLogsAction()
+	}
+	var cmd tea.Cmd
+	m.serviceList, cmd = m.serviceList.Update(msg)
+	return m, cmd
+}
+
+func (m ecsModel) handleStopAction() (ecsModel, tea.Cmd) {
+	if m.serviceList.SelectedItem() != nil {
+		selectedItem := m.serviceList.SelectedItem().(ecsServiceItem)
+		selectedService := selectedItem.service
+
+		if aws.Int64Value(selectedService.DesiredCount) > 0 {
+			m.confirming = true
+			m.action = "stop"
+			m.ecsServiceActionService = selectedService
+			m.state = ecsStateServiceConfirmAction
+			m.status = fmt.Sprintf("Confirm stopping service %s (Desired: %d)? (y/N)",
+				aws.StringValue(selectedService.ServiceName), aws.Int64Value(selectedService.DesiredCount))
+		} else {
+			m.status = fmt.Sprintf("Service %s is already stopped (Desired: 0).", aws.StringValue(selectedService.ServiceName))
+		}
+	}
+	return m, nil
+}
+
+func (m ecsModel) handleForceDeployAction() (ecsModel, tea.Cmd) {
+	if m.serviceList.SelectedItem() != nil {
+		selectedItem := m.serviceList.SelectedItem().(ecsServiceItem)
+		selectedService := selectedItem.service
+
+		m.confirming = true
+		m.action = "force-deploy"
+		m.ecsServiceActionService = selectedService
+		m.state = ecsStateServiceConfirmAction
+		m.status = fmt.Sprintf("Confirm force deployment of service %s? (y/N)",
+			aws.StringValue(selectedService.ServiceName))
+	}
+	return m, nil
+}
+
+func (m ecsModel) handleLogsAction() (ecsModel, tea.Cmd) {
+	if m.serviceList.SelectedItem() != nil {
+		selectedItem := m.serviceList.SelectedItem().(ecsServiceItem)
+		m.detailService = selectedItem.service
+		m.state = ecsStateServiceLogs
+		m.status = fmt.Sprintf("Fetching logs for service %s...", aws.StringValue(selectedItem.service.ServiceName))
+		return m, tea.Batch(m.parent.spinner.Tick, commands.FetchECSServiceLogsCmd(m.ecsSvc, m.cloudwatchlogsSvc, selectedItem.service))
+	}
+	return m, nil
+}
+
+func (m ecsModel) handleClustersFetched(msg messages.EcsClustersFetchedMsg) (ecsModel, tea.Cmd) {
+	m.header = append(m.header, "ECS Clusters")
+	listItems := make([]list.Item, len(msg))
+	for i, cluster := range msg {
+		listItems[i] = ecsClusterItem{cluster: cluster}
+	}
+	m.clusterList.SetItems(listItems)
+	m.status = "Ready"
+	m.err = nil
+	return m, nil
+}
+
+func (m ecsModel) handleServicesFetched(msg messages.EcsServicesFetchedMsg) (ecsModel, tea.Cmd) {
+	m.header = append(m.header, m.clusterList.SelectedItem().FilterValue(), "Services")
+	listItems := make([]list.Item, len(msg))
+	for i, service := range msg {
+		listItems[i] = ecsServiceItem{service: service}
+	}
+	m.serviceList.SetItems(listItems)
+	m.status = "Ready"
+	m.err = nil
+	return m, nil
+}
+
+func (m ecsModel) handleServiceDetails(msg messages.EcsServiceDetailsMsg) (ecsModel, tea.Cmd) {
+	m.detailService = msg
+	m.state = ecsStateServiceDetails
+	m.status = "Ready"
+	m.err = nil
+	return m, nil
+}
+
+func (m ecsModel) handleServiceAction(msg messages.EcsServiceActionMsg) (ecsModel, tea.Cmd) {
+	m.status = fmt.Sprintf("Service %s %s. Refreshing...", aws.StringValue(m.ecsServiceActionService.ServiceName), msg)
+	m.err = nil
+	m.action = ""
+	m.ecsServiceActionService = nil
+	m.confirming = false
+	return m, tea.Batch(m.parent.spinner.Tick, commands.FetchECSServicesCmd(m.ecsSvc, aws.StringValue(m.detailCluster.ClusterArn)))
+}
+
+func (m ecsModel) handleServiceLogsFetched(msg messages.EcsServiceLogsFetchedMsg) (ecsModel, tea.Cmd) {
+	m.header = append(m.header, aws.StringValue(m.detailCluster.ClusterName), m.serviceList.SelectedItem().FilterValue(), "Logs")
+	m.serviceLogs = string(msg)
+	m.paginator.SetTotalPages(len(strings.Split(m.serviceLogs, "\n")))
+	m.status = "Ready"
+	m.err = nil
+	return m, nil
+}
+
+func (m ecsModel) handleError(msg messages.ErrMsg) (ecsModel, tea.Cmd) {
+	m.err = msg
+	m.status = "Error"
+	m.confirming = false
+	m.action = ""
+	m.detailService = nil
+	m.serviceLogs = ""
+	return m, nil
+}
+
 func (m ecsModel) View() string {
 	var s string
+
 	switch m.state {
 	case ecsStateClusterList:
 		if len(m.clusterList.Items()) == 0 && m.status == "Ready" {

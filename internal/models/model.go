@@ -56,15 +56,12 @@ type Model struct {
 	statusStyle lipgloss.Style
 }
 
-func setListStyle(l *list.Model) {
+// configureList sets common styles and properties for a list.Model.
+func configureList(l *list.Model, listkeys *keys.ListKeyMap) {
 	st := list.DefaultStyles()
-
 	st.Title = styles.SubHeaderStyle
-	// st.FilterPrompt = lipgloss.NewStyle().Foreground(theme.Green())
-	// st.FilterCursor = lipgloss.NewStyle().Foreground(.TokyoNightGreen)
 	st.NoItems = styles.StatusStyle.UnsetPaddingLeft()
 	st.StatusBar = styles.StatusStyle
-	st.NoItems = styles.StatusStyle.UnsetPaddingLeft()
 	l.Help.Styles.ShortDesc = styles.HelpStyle
 	l.Help.Styles.FullDesc = styles.HelpStyle
 	l.Help.Styles.ShortKey = styles.HelpStyle
@@ -72,9 +69,12 @@ func setListStyle(l *list.Model) {
 	l.Paginator.ActiveDot = styles.ActivePager.Render("•")
 	l.Paginator.InactiveDot = styles.InactivePager.Render("•")
 	l.Styles = st
-
+	l.SetShowTitle(false)
+	l.SetShowStatusBar(false)
+	l.SetFilteringEnabled(true)
 }
 
+// newSpinner creates and configures a new spinner model.
 func newSpinner() spinner.Model {
 	s := spinner.New()
 	s.Spinner = spinner.Dot
@@ -82,6 +82,7 @@ func newSpinner() spinner.Model {
 	return s
 }
 
+// newAWSClients initializes and returns AWS service clients.
 func newAWSClients() (*ec2.EC2, *ecs.ECS, *ecr.ECR, *cloudwatchlogs.CloudWatchLogs, *sfn.SFN, *batch.Batch) {
 	sess, err := session.NewSessionWithOptions(session.Options{
 		SharedConfigState: session.SharedConfigEnable,
@@ -90,16 +91,10 @@ func newAWSClients() (*ec2.EC2, *ecs.ECS, *ecr.ECR, *cloudwatchlogs.CloudWatchLo
 		log.Fatalf("Failed to create AWS session: %v", err)
 	}
 
-	// Create AWS service clients
-	ec2Svc := ec2.New(sess)
-	ecsSvc := ecs.New(sess)
-	ecrSvc := ecr.New(sess)
-	cloudwatchlogsSvc := cloudwatchlogs.New(sess)
-	sfnSvc := sfn.New(sess)
-	batchSvc := batch.New(sess)
-	return ec2Svc, ecsSvc, ecrSvc, cloudwatchlogsSvc, sfnSvc, batchSvc
+	return ec2.New(sess), ecs.New(sess), ecr.New(sess), cloudwatchlogs.New(sess), sfn.New(sess), batch.New(sess)
 }
 
+// newMainMenu creates and configures the main menu list.
 func newMainMenu(listkeys *keys.ListKeyMap) list.Model {
 	items := []list.Item{
 		resourceItem{title: "EC2", desc: "Elastic Compute Cloud"},
@@ -110,26 +105,18 @@ func newMainMenu(listkeys *keys.ListKeyMap) list.Model {
 	}
 
 	mainList := list.New(items, ItemDelegate{}, 0, 0)
-	mainList.SetShowTitle(false)
-	mainList.SetShowStatusBar(false)
-	mainList.SetFilteringEnabled(true)
-	setListStyle(&mainList)
+	configureList(&mainList, listkeys)
 	mainList.AdditionalShortHelpKeys = func() []key.Binding {
-		return []key.Binding{
-			listkeys.Choose,
-		}
+		return []key.Binding{listkeys.Choose}
 	}
 	mainList.AdditionalFullHelpKeys = mainList.AdditionalShortHelpKeys
 	return mainList
 }
 
+// newEC2List creates and configures the EC2 instance list.
 func newEC2List(listkeys *keys.ListKeyMap) list.Model {
 	ec2List := list.New([]list.Item{}, ItemDelegate{}, 0, 0)
-	ec2List.SetShowTitle(false)
-	ec2List.SetShowStatusBar(false)
-	ec2List.SetFilteringEnabled(true)
-	setListStyle(&ec2List)
-
+	configureList(&ec2List, listkeys)
 	ec2List.AdditionalFullHelpKeys = func() []key.Binding {
 		return []key.Binding{
 			listkeys.Details,
@@ -143,12 +130,10 @@ func newEC2List(listkeys *keys.ListKeyMap) list.Model {
 	return ec2List
 }
 
+// newECSClusterList creates and configures the ECS cluster list.
 func newECSClusterList(listkeys *keys.ListKeyMap) list.Model {
 	ecsClusterList := list.New([]list.Item{}, ItemDelegate{}, 0, 0)
-	ecsClusterList.SetShowTitle(false)
-	ecsClusterList.SetShowStatusBar(false)
-	ecsClusterList.SetFilteringEnabled(true)
-	setListStyle(&ecsClusterList)
+	configureList(&ecsClusterList, listkeys)
 	ecsClusterList.AdditionalFullHelpKeys = func() []key.Binding {
 		return []key.Binding{
 			listkeys.Choose,
@@ -159,12 +144,10 @@ func newECSClusterList(listkeys *keys.ListKeyMap) list.Model {
 	return ecsClusterList
 }
 
+// newECSServiceList creates and configures the ECS service list.
 func newECSServiceList(listkeys *keys.ListKeyMap) list.Model {
 	ecsServiceList := list.New([]list.Item{}, ItemDelegate{}, 0, 0)
-	ecsServiceList.SetShowTitle(false)
-	ecsServiceList.SetShowStatusBar(false)
-	ecsServiceList.SetFilteringEnabled(true)
-	setListStyle(&ecsServiceList)
+	configureList(&ecsServiceList, listkeys)
 	ecsServiceList.AdditionalFullHelpKeys = func() []key.Binding {
 		return []key.Binding{
 			listkeys.Details,
@@ -177,12 +160,10 @@ func newECSServiceList(listkeys *keys.ListKeyMap) list.Model {
 	return ecsServiceList
 }
 
+// newECRRepositoryList creates and configures the ECR repository list.
 func newECRRepositoryList(listkeys *keys.ListKeyMap) list.Model {
 	ecrRepositoryList := list.New([]list.Item{}, ItemDelegate{}, 0, 0)
-	ecrRepositoryList.SetShowTitle(false)
-	ecrRepositoryList.SetShowStatusBar(false)
-	ecrRepositoryList.SetFilteringEnabled(true)
-	setListStyle(&ecrRepositoryList)
+	configureList(&ecrRepositoryList, listkeys)
 	ecrRepositoryList.AdditionalFullHelpKeys = func() []key.Binding {
 		return []key.Binding{
 			listkeys.Choose,
@@ -193,12 +174,10 @@ func newECRRepositoryList(listkeys *keys.ListKeyMap) list.Model {
 	return ecrRepositoryList
 }
 
+// newECRImageList creates and configures the ECR image list.
 func newECRImageList(listkeys *keys.ListKeyMap) list.Model {
 	ecrImageList := list.New([]list.Item{}, ItemDelegate{}, 0, 0)
-	ecrImageList.SetShowTitle(false)
-	ecrImageList.SetShowStatusBar(false)
-	ecrImageList.SetFilteringEnabled(true)
-	setListStyle(&ecrImageList)
+	configureList(&ecrImageList, listkeys)
 	ecrImageList.AdditionalFullHelpKeys = func() []key.Binding {
 		return []key.Binding{
 			listkeys.Refresh,
@@ -210,12 +189,10 @@ func newECRImageList(listkeys *keys.ListKeyMap) list.Model {
 	return ecrImageList
 }
 
+// newSFNList creates and configures the Step Functions state machine list.
 func newSFNList(listkeys *keys.ListKeyMap) list.Model {
 	sfnList := list.New([]list.Item{}, ItemDelegate{}, 0, 0)
-	sfnList.SetShowTitle(false)
-	sfnList.SetShowStatusBar(false)
-	sfnList.SetFilteringEnabled(true)
-	setListStyle(&sfnList)
+	configureList(&sfnList, listkeys)
 	sfnList.AdditionalFullHelpKeys = func() []key.Binding {
 		return []key.Binding{
 			listkeys.Choose,
@@ -227,12 +204,10 @@ func newSFNList(listkeys *keys.ListKeyMap) list.Model {
 	return sfnList
 }
 
+// newSFNExecutionList creates and configures the Step Functions execution list.
 func newSFNExecutionList(listkeys *keys.ListKeyMap) list.Model {
 	sfnExecutionList := list.New([]list.Item{}, ItemDelegate{}, 0, 0)
-	sfnExecutionList.SetShowTitle(false)
-	sfnExecutionList.SetShowStatusBar(false)
-	sfnExecutionList.SetFilteringEnabled(true)
-	setListStyle(&sfnExecutionList)
+	configureList(&sfnExecutionList, listkeys)
 	sfnExecutionList.AdditionalFullHelpKeys = func() []key.Binding {
 		return []key.Binding{
 			listkeys.Choose,
@@ -243,12 +218,10 @@ func newSFNExecutionList(listkeys *keys.ListKeyMap) list.Model {
 	return sfnExecutionList
 }
 
+// newSFNExecutionHistoryList creates and configures the Step Functions execution history list.
 func newSFNExecutionHistoryList(listkeys *keys.ListKeyMap) list.Model {
 	sfnExecutionList := list.New([]list.Item{}, ItemDelegate{}, 0, 0)
-	sfnExecutionList.SetShowTitle(false)
-	sfnExecutionList.SetShowStatusBar(false)
-	sfnExecutionList.SetFilteringEnabled(true)
-	setListStyle(&sfnExecutionList)
+	configureList(&sfnExecutionList, listkeys)
 	sfnExecutionList.AdditionalFullHelpKeys = func() []key.Binding {
 		return []key.Binding{
 			listkeys.Refresh,
@@ -258,12 +231,10 @@ func newSFNExecutionHistoryList(listkeys *keys.ListKeyMap) list.Model {
 	return sfnExecutionList
 }
 
+// newBatchJobQueueList creates and configures the Batch job queue list.
 func newBatchJobQueueList(listkeys *keys.ListKeyMap) list.Model {
 	batchJobQueueList := list.New([]list.Item{}, ItemDelegate{}, 0, 0)
-	batchJobQueueList.SetShowTitle(false)
-	batchJobQueueList.SetShowStatusBar(false)
-	batchJobQueueList.SetFilteringEnabled(true)
-	setListStyle(&batchJobQueueList)
+	configureList(&batchJobQueueList, listkeys)
 	batchJobQueueList.AdditionalFullHelpKeys = func() []key.Binding {
 		return []key.Binding{
 			listkeys.Choose,
@@ -274,12 +245,10 @@ func newBatchJobQueueList(listkeys *keys.ListKeyMap) list.Model {
 	return batchJobQueueList
 }
 
+// newBatchJobList creates and configures the Batch job list.
 func newBatchJobList(listkeys *keys.ListKeyMap) list.Model {
 	batchJobList := list.New([]list.Item{}, ItemDelegate{}, 0, 0)
-	batchJobList.SetShowTitle(false)
-	batchJobList.SetShowStatusBar(false)
-	batchJobList.SetFilteringEnabled(true)
-	setListStyle(&batchJobList)
+	configureList(&batchJobList, listkeys)
 	batchJobList.AdditionalFullHelpKeys = func() []key.Binding {
 		return []key.Binding{
 			listkeys.Details,
@@ -384,6 +353,28 @@ func NewModel() Model {
 	return m
 }
 
+func (m *Model) handleMenuChoose() tea.Cmd {
+	selectedChoice := m.menuChoices.SelectedItem().FilterValue()
+	switch selectedChoice {
+	case "EC2":
+		m.state = stateEC2
+		return m.ec2Model.Init()
+	case "ECS":
+		m.state = stateECS
+		return m.ecsModel.Init()
+	case "ECR":
+		m.state = stateECR
+		return m.ecrModel.Init()
+	case "Step Functions":
+		m.state = stateSFN
+		return m.sfnModel.Init()
+	case "Batch":
+		m.state = stateBatch
+		return m.batchModel.Init()
+	}
+	return nil
+}
+
 // Init initializes the model and starts fetching data based on the initial state.
 func (m Model) Init() tea.Cmd {
 	return m.spinner.Tick
@@ -412,24 +403,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case stateMenu:
 			switch {
 			case key.Matches(msg, m.keys.Choose):
-				selectedChoice := m.menuChoices.SelectedItem().FilterValue()
-				switch selectedChoice {
-				case "EC2":
-					m.state = stateEC2
-					return m, m.ec2Model.Init()
-				case "ECS":
-					m.state = stateECS
-					return m, m.ecsModel.Init()
-				case "ECR":
-					m.state = stateECR
-					return m, m.ecrModel.Init()
-				case "Step Functions":
-					m.state = stateSFN
-					return m, m.sfnModel.Init()
-				case "Batch":
-					m.state = stateBatch
-					return m, m.batchModel.Init()
-				}
+				return m, m.handleMenuChoose()
 			}
 			m.menuChoices, cmd = m.menuChoices.Update(msg)
 
@@ -439,40 +413,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				break
 			}
 			if key.Matches(msg, key.NewBinding(key.WithKeys("esc"), key.WithHelp("esc", "back"))) {
-				if m.state == stateEC2 {
-					if m.ec2Model.showDetails {
-						m.ec2Model, cmd = m.ec2Model.Update(msg)
-						return m, cmd
-					}
-				}
-				if m.state == stateECS {
-					if m.ecsModel.state != ecsStateClusterList {
-						m.ecsModel, cmd = m.ecsModel.Update(msg)
-						return m, cmd
-					}
-				}
-				if m.state == stateECR {
-					if m.ecrModel.state != ecrStateRepositoryList {
-						m.ecrModel, cmd = m.ecrModel.Update(msg)
-						return m, cmd
-					}
-				}
-				if m.state == stateBatch {
-					if m.batchModel.state != batchStateJobQueueList {
-						m.batchModel, cmd = m.batchModel.Update(msg)
-						return m, cmd
-					}
-				}
-				if m.state == stateSFN {
-					if m.sfnModel.state != sfnStateList {
-						m.sfnModel, cmd = m.sfnModel.Update(msg)
-						return m, cmd
-					}
-				}
-				m.state = stateMenu
-				m.status = "Select an option."
-				m.err = nil
-				return m, nil
+				return m, m.handleEscKey(msg)
 			}
 		}
 	case spinner.TickMsg:
@@ -484,6 +425,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
+	// Delegate updates to sub-models based on current state
 	switch m.state {
 	case stateEC2:
 		m.ec2Model, cmd = m.ec2Model.Update(msg)
@@ -501,6 +443,45 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	return m, cmd
 }
+
+// handleEscKey manages the logic for the escape key, allowing navigation back through states.
+func (m *Model) handleEscKey(msg tea.Msg) tea.Cmd {
+	var cmd tea.Cmd
+	switch m.state {
+	case stateEC2:
+		if m.ec2Model.showDetails {
+			m.ec2Model, cmd = m.ec2Model.Update(msg)
+			return cmd
+		}
+	case stateECS:
+		if m.ecsModel.state != ecsStateClusterList {
+			m.ecsModel, cmd = m.ecsModel.Update(msg)
+			return cmd
+		}
+	case stateECR:
+		if m.ecrModel.state != ecrStateRepositoryList {
+			m.ecrModel, cmd = m.ecrModel.Update(msg)
+			return cmd
+		}
+	case stateBatch:
+		if m.batchModel.state != batchStateJobQueueList {
+			m.batchModel, cmd = m.batchModel.Update(msg)
+			return cmd
+		}
+	case stateSFN:
+		if m.sfnModel.state != sfnStateList {
+			m.sfnModel, cmd = m.sfnModel.Update(msg)
+			return cmd
+		}
+	}
+
+	m.state = stateMenu
+	m.status = "Select an option."
+	m.err = nil
+	return nil
+}
+
+// Header generates the header string for the application.
 func (m Model) Header(items []string) string {
 	ret := styles.HeaderStyle.Render(" 󰸏  AWS TUI ")
 	for i, h := range items {
@@ -533,53 +514,23 @@ func (m Model) View() string {
 	case stateEC2:
 		s.WriteString(m.Header(m.ec2Model.Header))
 		s.WriteString(m.ec2Model.View())
-		if m.ec2Model.status != "Ready" && m.ec2Model.status != "Error" {
-			status = m.ec2Model.status
-			spinner = m.spinner.View()
-		} else if m.ec2Model.confirming {
-			status = m.ec2Model.status
-		} else {
-			status = fmt.Sprintf("Status: %s", m.ec2Model.status)
-		}
-
+		status, spinner = m.renderStatusAndSpinner(m.ec2Model.status, m.ec2Model.confirming)
 	case stateECS:
 		s.WriteString(m.Header(m.ecsModel.header))
 		s.WriteString(m.ecsModel.View())
-		if m.ecsModel.status != "Ready" && m.ecsModel.status != "Error" {
-			status = m.ecsModel.status
-			spinner = m.spinner.View()
-		} else if m.ec2Model.confirming {
-			status = fmt.Sprintf("%s", m.ecsModel.status)
-		} else {
-			status = fmt.Sprintf("Status: %s", m.ecsModel.status)
-		}
+		status, spinner = m.renderStatusAndSpinner(m.ecsModel.status, m.ecsModel.confirming)
 	case stateECR:
 		s.WriteString(m.Header(m.ecrModel.header))
 		s.WriteString(m.ecrModel.View())
-		if m.ecrModel.status != "Ready" && m.ecrModel.status != "Error" {
-			status = m.ecrModel.status
-			spinner = m.spinner.View()
-		} else {
-			status = fmt.Sprintf("Status: %s", m.ecrModel.status)
-		}
+		status, spinner = m.renderStatusAndSpinner(m.ecrModel.status, false)
 	case stateSFN:
 		s.WriteString(m.Header(m.sfnModel.header))
 		s.WriteString(m.sfnModel.View())
-		if m.sfnModel.status != "Ready" && m.sfnModel.status != "Error" {
-			status = m.sfnModel.status
-			spinner = m.spinner.View()
-		} else {
-			status = fmt.Sprintf("Status: %s", m.sfnModel.status)
-		}
+		status, spinner = m.renderStatusAndSpinner(m.sfnModel.status, false)
 	case stateBatch:
 		s.WriteString(m.Header(m.batchModel.header))
 		s.WriteString(m.batchModel.View())
-		if m.batchModel.status != "Ready" && m.batchModel.status != "Error" {
-			status = m.batchModel.status
-			spinner = m.spinner.View()
-		} else {
-			status = fmt.Sprintf("Status: %s", m.batchModel.status)
-		}
+		status, spinner = m.renderStatusAndSpinner(m.batchModel.status, m.batchModel.confirming)
 	}
 
 	st := m.statusStyle.Render(spinner) + m.statusStyle.Render(status)
@@ -593,4 +544,18 @@ func (m Model) View() string {
 	s.WriteString("\n" + st + padding)
 
 	return styles.AppStyle.Render(s.String())
+}
+
+// renderStatusAndSpinner generates the status and spinner string based on the provided status and confirming state.
+func (m Model) renderStatusAndSpinner(currentStatus string, confirming bool) (string, string) {
+	var status, spinner string
+	if currentStatus != "Ready" && currentStatus != "Error" {
+		status = currentStatus
+		spinner = m.spinner.View()
+	} else if confirming {
+		status = currentStatus
+	} else {
+		status = fmt.Sprintf("Status: %s", currentStatus)
+	}
+	return status, spinner
 }
